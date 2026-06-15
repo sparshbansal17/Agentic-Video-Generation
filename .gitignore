@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+
+# Environments and caches
+.venv/
+.conda/
+.hf-cache/
+.pip-cache/
+.torch-cache/
+.tmp/
+.cache/
+
+# Heavy local assets
+models/
+audio_tools/
+results*/
+logs/
+log.txt
+*.log
+*.out
+*.err
+
+# Generated media/checkpoints
+*.mp4
+*.mov
+*.wav
+*.mp3
+*.flac
+*.safetensors
+*.ckpt
+*.pt
+*.pth
+
+# OS/editor
+.DS_Store
+.vscode/

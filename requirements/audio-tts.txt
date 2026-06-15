@@ -1,0 +1,2 @@
+-e .[audio-tts]
+# CosyVoice is usually installed as a separate engine checkout/env and invoked via command template.

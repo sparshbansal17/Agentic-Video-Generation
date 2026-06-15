@@ -1,0 +1,73 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "storymem-agentic"
+version = "0.1.0"
+description = "Agentic nursery-rhyme video production on top of StoryMem, with timing-first audio orchestration."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "S-Lab License 1.0 for upstream StoryMem code; see LICENSE.md and THIRD_PARTY_NOTICES.md" }
+authors = [{ name = "StoryMem Agentic contributors" }]
+dependencies = [
+  "json5>=0.9.0",
+  "numpy>=1.23.5,<2",
+  "opencv-python>=4.9.0.80",
+  "typing-extensions>=4.9.0",
+]
+
+[project.optional-dependencies]
+agents = [
+  "jinja2>=3.1",
+  "jsonschema>=4.22",
+  "pydantic>=2.7",
+]
+video = [
+  "torch==2.4.0",
+  "torchvision==0.19.0",
+  "diffusers==0.32.2",
+  "transformers==4.45.2",
+  "peft==0.14.0",
+  "tokenizers>=0.20.3",
+  "accelerate>=1.1.1",
+  "imageio[ffmpeg]",
+  "matplotlib",
+  "tensorboard",
+  "tqdm",
+  "easydict",
+  "ftfy",
+  "dashscope",
+  "decord",
+  "protobuf",
+  "click",
+  "hpsv3",
+]
+audio-tts = [
+  "soundfile>=0.12",
+  "f5-tts>=1.1.0",
+]
+audio-music = [
+  "soundfile>=0.12",
+]
+align = [
+  "whisperx>=3.3.0",
+]
+dev = [
+  "pytest>=8.0",
+  "ruff>=0.6.0",
+]
+
+[project.scripts]
+storymem-agentic = "storymem_agentic.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

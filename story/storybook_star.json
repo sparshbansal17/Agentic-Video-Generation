@@ -1,0 +1,106 @@
+{
+  "story_name": "The Little Star's Goodnight Glow",
+  "story_overview": "A gentle ten-scene bedtime nursery story about a small friendly golden star who wakes in the moonlit sky, sparkles above soft clouds, catches the attention of a curious child, and sends warm golden light across the sleeping world. The story moves from wide magical sky views to cozy bedroom wonder, then follows the star over rooftops, forests, hills, and shimmering clouds before ending with the child waving goodnight beneath a sky full of twinkling stars. Keep the star design consistent in every scene: a small rounded five-point golden star with a friendly smiling face, soft glowing edges, tiny sparkling motes, and a warm reassuring expression. Keep the child design consistent: a young child in soft pajamas with wide curious eyes, warmly lit by bedroom lamplight and cool moonlight. Overall style is whimsical storybook animation, soft-edged painterly illustration, dreamy glow, child-friendly composition, deep night blues balanced with gold, silver, pastel white, and warm bedroom light.",
+  "scenes": [
+    {
+      "scene_num": 1,
+      "video_prompts": [
+        "Opening wide shot of a peaceful deep blue night sky filled with soft fluffy clouds and a glowing crescent moon. A small rounded five-point golden star with a friendly smiling face appears centered in the sky, sparkling gently with warm gold light. The star softly twinkles and bounces in place like it is waking up for bedtime, sending tiny glittering motes into the air. Whimsical storybook animation, soft magical lighting from the star and moon, deep blue and gold color tone, standard lens, calm dreamy glow, clear child-friendly design, no text."
+      ],
+      "first_frame_prompt": [
+        "Wide storybook night sky with the smiling golden star centered, fluffy clouds around it, and a glowing crescent moon behind; deep blue and warm gold palette, soft magical glow, no text."
+      ],
+      "cut": [true]
+    },
+    {
+      "scene_num": 2,
+      "video_prompts": [
+        "The little golden star floats among cottony moonlit clouds, smiling as it leaves a faint trail of sparkling dust. The camera drifts slowly sideways through the clouds while the star glides forward with gentle buoyant motion, its glow illuminating cloud edges in gold and silver. The crescent moon remains softly visible in the background. Dreamy painterly storybook style, wide airy composition, soft cloud depth, magical bedtime atmosphere, deep blue sky with pastel white and golden highlights, no text."
+      ],
+      "first_frame_prompt": [
+        "Smiling golden star floating between soft moonlit clouds, faint sparkling trail behind it, crescent moon in the deep blue background, dreamy storybook glow, no text."
+      ],
+      "cut": [true]
+    },
+    {
+      "scene_num": 3,
+      "video_prompts": [
+        "Inside a cozy child's bedroom at night, warm lamplight glows over toys, picture books, a soft blanket, and a small bedside table. The curious child in soft pajamas notices the twinkling golden star through the window, eyes widening with wonder. The child turns toward the glass as cool blue moonlight mixes with warm gold from the star. Animated soft-edged illustration, medium shot, child in foreground with window and starry sky behind, gentle vignette, warm golds and cool blues, no text."
+      ],
+      "first_frame_prompt": [
+        "Cozy bedroom at night with a pajama-wearing child noticing the golden star through a softly lit window, toys and books nearby, warm lamp glow and cool moonlight, no text."
+      ],
+      "cut": [true]
+    },
+    {
+      "scene_num": 4,
+      "video_prompts": [
+        "The child leans close to the bedroom window and presses both hands gently against the glass, following the little golden star with amazed eyes. Outside, the star twinkles back as if greeting the child, and its warm reflection shimmers softly on the windowpane. The room remains cozy with toys and books in soft focus. Medium close shot, child in foreground, star visible beyond the glass, warm lamplight, cool moonlight, gold star reflection, comforting animated storybook style, no text."
+      ],
+      "first_frame_prompt": [
+        "Child in pajamas pressing hands to the window glass, eyes wide with wonder, golden star twinkling outside and reflected softly on the pane, cozy bedroom background, no text."
+      ],
+      "cut": [true]
+    },
+    {
+      "scene_num": 5,
+      "video_prompts": [
+        "The camera moves outside and rises gently above quiet rooftops while the little golden star shines high overhead. Peaceful houses sleep below with a few warm window lights, and the star's glow paints soft golden highlights on rooftops and drifting clouds. The star looks down kindly, still smiling. High-angle wide shot, slow upward camera motion, deep blue night, warm gold accents, soft white clouds, dreamy painterly bedtime illustration, no text."
+      ],
+      "first_frame_prompt": [
+        "High-angle wide view of quiet sleeping houses under deep blue sky, the smiling golden star glowing above and casting warm light onto rooftops and clouds, no text."
+      ],
+      "cut": [true]
+    },
+    {
+      "scene_num": 6,
+      "video_prompts": [
+        "The little star travels above a moonlit forest and rolling hills, spreading a soft golden path of light over treetops and grassy slopes. Clouds drift slowly past the camera as the world below feels peaceful and full of dreams. The star remains the same small friendly golden character, sparkling gently without changing shape. Sweeping wide landscape shot, wide lens, deep blue and soft white night tones with gold highlights, dreamlike painterly storybook style, calm magical motion, no text."
+      ],
+      "first_frame_prompt": [
+        "Wide moonlit forest and rolling hills under a deep blue sky, smiling golden star above spreading a warm glowing path over treetops, drifting clouds, no text."
+      ],
+      "cut": [true]
+    },
+    {
+      "scene_num": 7,
+      "video_prompts": [
+        "Close-up macro view of the smiling golden star sparkling like a tiny diamond in the deep blue sky. It rotates very slowly, sending delicate silver-white and golden rays outward while tiny glitter motes shimmer around its points. Soft luminous clouds frame the star without hiding its friendly face. Magical gem-inspired storybook style, centered composition, macro lens feel, sparkling light source, blue, silver, white, and gold color tone, no text."
+      ],
+      "first_frame_prompt": [
+        "Macro close-up of the smiling golden star centered in a deep blue sky, diamond-like golden and silver sparkles around its points, soft luminous clouds, no text."
+      ],
+      "cut": [true]
+    },
+    {
+      "scene_num": 8,
+      "video_prompts": [
+        "Tiny star sparkles drift down from the little golden star like gentle fireflies, forming a soft glowing trail that leads back toward the child's window. The child watches from inside, face lit by warm gold and cool blue, smiling with quiet happiness. The scene bridges sky and bedroom: star outside in the upper background, child near the window in the lower foreground, soft magical particles connecting them. Storybook composition, standard lens, comforting bedtime glow, pastel blues, whites, and golds, no text."
+      ],
+      "first_frame_prompt": [
+        "Golden sparkles drifting from the smiling star toward the child's bedroom window, child smiling inside with face softly lit by gold and moon-blue light, no text."
+      ],
+      "cut": [true]
+    },
+    {
+      "scene_num": 9,
+      "video_prompts": [
+        "The night sky fills with many small twinkling stars surrounding the friendly golden star, creating a gentle sparkling pattern above the child's home. The main golden star remains slightly larger and centered, smiling warmly as the other stars pulse softly around it. The child is visible near the window below, looking up with a peaceful smile. Wide comforting composition, slow camera pullback, soft glowing light, pastel blue, gold, silver, and white palette, whimsical storybook animation, no text."
+      ],
+      "first_frame_prompt": [
+        "Wide view of many twinkling stars around the main smiling golden star above the child's home, child visible at the window below, soft pastel night glow, no text."
+      ],
+      "cut": [true]
+    },
+    {
+      "scene_num": 10,
+      "video_prompts": [
+        "Ending wide shot: the child waves goodnight from the cozy bedroom window while the little golden star smiles back from the sky, surrounded by many softly twinkling stars and the glowing crescent moon. The camera slowly pulls back to reveal the whole peaceful night sky and the warm little home below. The stars twinkle together in a soothing bedtime rhythm, leaving a warm comforting glow that invites children to dream. Whimsical storybook style, soft sparkling effects, gentle magical lighting, pastel blues, golds, and whites, no text."
+      ],
+      "first_frame_prompt": [
+        "Final wide bedtime scene with child waving goodnight from the window and the smiling golden star glowing back in a sky full of twinkling stars and crescent moon, no text."
+      ],
+      "cut": [true]
+    }
+  ]
+}

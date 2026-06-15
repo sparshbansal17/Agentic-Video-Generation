@@ -1,0 +1,74 @@
+{
+  "story_name": "Twinkle Toddler Music Box Dream",
+  "story_overview": "A soft five-clip toddler music-box Twinkle singalong with a plush-cloud sky, a smiling rounded golden star, and a pajama child. Every clip maps to one lyric line. Clips 2 and 4 are close singalong clips with mouth movement and subtitle_text metadata for postprocess subtitles. Keep the video simple, rounded, warm, gentle, and bedtime-safe. No generated text or letters inside the video image. The first four scenes map exactly to the four lullaby lines and carry subtitle_text for those lines. The fifth scene is a wordless visual goodnight close with no dialogue, no sung lyric, and no subtitle.",
+  "scenes": [
+    {
+      "scene_num": 1,
+      "lyric_line": "Twinkle, twinkle, little star,",
+      "video_prompts": [
+        "Soft music-box dream scene for toddlers: a small rounded golden star with a smiling face wakes on a plush white cloud under a crescent moon. The star gently rocks side to side and twinkles in a slow 3/4 nursery rhythm as the first lyric begins. Use pastel sky blue, creamy white, warm gold, tiny safe sparkles, simple centered composition, slow lullaby motion, no generated text, no letters, no sharp shapes. This scene follows the first sung line, \"Twinkle, twinkle, little star,\" with gentle nursery-rhyme timing and no generated text or letters."
+      ],
+      "first_frame_prompt": [
+        "Smiling rounded golden star on plush cloud under crescent moon, pastel blue sky, music-box bedtime mood, no text."
+      ],
+      "cut": [
+        true
+      ],
+      "subtitle_text": "Twinkle, twinkle, little star,"
+    },
+    {
+      "scene_num": 2,
+      "lyric_line": "How I wonder what you are!",
+      "subtitle_text": "How I wonder what you are!",
+      "video_prompts": [
+        "Medium close shot of a pajama child gently singing toward a music-box window, with clear rhythmic mouth opening and closing matched to the lyric. The child tilts their head with wonder while a smiling golden star glows outside. A small music box, teddy bear, and bedtime book sit nearby in soft focus. Warm lamplight, pastel blues and gold, simple toddler-safe framing, no generated text, no letters. This scene follows the second sung line, \"How I wonder what you are!\" with clear child-friendly expression and no generated text or letters."
+      ],
+      "first_frame_prompt": [
+        "Pajama child near music-box window, mouth ready to sing, smiling golden star outside, teddy bear nearby, no text."
+      ],
+      "cut": [
+        true
+      ]
+    },
+    {
+      "scene_num": 3,
+      "lyric_line": "Up above the world so high,",
+      "video_prompts": [
+        "The smiling golden star rises above layered plush clouds and a tiny music-box village with rounded rooftops and warm windows. The camera floats upward slowly as cloud shapes turn like gentle carousel pieces. Calm toddler animation, creamy whites, pastel blue, pearl highlights, warm gold glow, minimal details, readable shapes, no generated text, no letters, no scary darkness. This scene follows the third sung line, \"Up above the world so high,\" with slow upward motion and no generated text or letters."
+      ],
+      "first_frame_prompt": [
+        "Golden smiling star rising above plush clouds and tiny rounded music-box village, warm windows, no text."
+      ],
+      "cut": [
+        true
+      ],
+      "subtitle_text": "Up above the world so high,"
+    },
+    {
+      "scene_num": 4,
+      "lyric_line": "Like a diamond in the sky.",
+      "subtitle_text": "Like a diamond in the sky.",
+      "video_prompts": [
+        "Close singalong shot of the golden star sparkling like a soft toy diamond above plush clouds. The star's friendly mouth moves clearly and gently as it sings the lyric, with slow blinking eyes and a reassuring smile. Sparkles appear as tiny music-box notes and dots but no readable symbols or letters. Clean pastel blue background, gold and white glow, toddler-safe, no generated text, no letters. This scene follows the fourth sung line, \"Like a diamond in the sky.\" with gentle sparkle timing and no generated text or letters."
+      ],
+      "first_frame_prompt": [
+        "Close-up smiling golden star like soft toy diamond, friendly singing mouth, plush clouds, gold sparkles, no text."
+      ],
+      "cut": [
+        true
+      ]
+    },
+    {
+      "scene_num": 5,
+      "video_prompts": [
+        "Peaceful music-box finale: the pajama child cuddles a teddy bear and waves from bed while the smiling golden star glides past the window and twinkles to a gentle goodnight close. The music box turns slowly on the nightstand, the room glows warm and cozy, and plush clouds drift outside. Toddler-friendly bedtime animation, soft palette, rounded shapes, calm ending, no generated text, no letters. This closing scene is wordless: no dialogue, no singing, no lyric line, and no mouth-sync focus; use only gentle smiles, waving, twinkling, and instrumental bedtime music."
+      ],
+      "first_frame_prompt": [
+        "Child in cozy bed cuddling teddy and waving to smiling star outside, music box on nightstand, plush clouds, no text."
+      ],
+      "cut": [
+        true
+      ]
+    }
+  ]
+}

@@ -1,0 +1,74 @@
+{
+  "story_name": "Twinkle Toddler Star Parade",
+  "story_overview": "A five-clip toddler Twinkle singalong where a smiling rounded golden star leads a gentle bedtime parade of toy blocks, clouds, the moon, and cozy shapes. Every clip follows one spoken or sung lyric line. Clips 2 and 4 are singalong focus clips with mouth movement and subtitle_text metadata for postprocess subtitles. Keep everything bright, rounded, slow, simple, and child-safe. No generated text or letters inside the video image. The first four scenes map exactly to the four lullaby lines and carry subtitle_text for those lines. The fifth scene is a wordless visual goodnight close with no dialogue, no sung lyric, and no subtitle.",
+  "scenes": [
+    {
+      "scene_num": 1,
+      "lyric_line": "Twinkle, twinkle, little star,",
+      "video_prompts": [
+        "A smiling rounded golden star leads a tiny bedtime parade across a soft blue nursery sky. Puffy clouds, a crescent moon, toy blocks, and little plush shapes gently bob behind it in a slow rhythm matching the first lyric. The parade is simple and uncluttered, with warm gold glow, pastel blue, mint, peach, and white colors. Toddler animation, rounded toy-like shapes, no generated text, no letters, no fast motion. This scene follows the first sung line, \"Twinkle, twinkle, little star,\" with gentle nursery-rhyme timing and no generated text or letters."
+      ],
+      "first_frame_prompt": [
+        "Smiling golden star leading gentle parade of puffy clouds, crescent moon, toy blocks, pastel nursery sky, no text."
+      ],
+      "cut": [
+        true
+      ],
+      "subtitle_text": "Twinkle, twinkle, little star,"
+    },
+    {
+      "scene_num": 2,
+      "lyric_line": "How I wonder what you are!",
+      "subtitle_text": "How I wonder what you are!",
+      "video_prompts": [
+        "Medium close singalong shot of a pajama child watching the star parade from a cozy window. The child sings the lyric with clear rhythmic mouth movement, then opens both hands in a soft wondering gesture. The smiling star pauses outside the window and twinkles back. Bright toddler style, warm lamplight, soft blue night, toy parade shapes behind the star, no generated text, no letters. This scene follows the second sung line, \"How I wonder what you are!\" with clear child-friendly expression and no generated text or letters."
+      ],
+      "first_frame_prompt": [
+        "Pajama child at window singing toward smiling star parade, hands ready for wondering gesture, warm light, no text."
+      ],
+      "cut": [
+        true
+      ]
+    },
+    {
+      "scene_num": 3,
+      "lyric_line": "Up above the world so high,",
+      "video_prompts": [
+        "The bedtime parade rises high above a simple rounded world: toy-like hills, tiny houses, sleepy trees, and soft clouds below. The smiling golden star leads the moon and cloud friends upward with slow floating motion. Camera tilts gently upward, toddler-friendly bright bedtime palette, clear shapes, warm gold sparkle trail, no generated text, no letters, no clutter. This scene follows the third sung line, \"Up above the world so high,\" with slow upward motion and no generated text or letters."
+      ],
+      "first_frame_prompt": [
+        "Golden star parade floating high above rounded hills, tiny houses, sleepy trees, soft clouds, no text."
+      ],
+      "cut": [
+        true
+      ],
+      "subtitle_text": "Up above the world so high,"
+    },
+    {
+      "scene_num": 4,
+      "lyric_line": "Like a diamond in the sky.",
+      "subtitle_text": "Like a diamond in the sky.",
+      "video_prompts": [
+        "Close singalong parade highlight: the smiling golden star stops at the front of the parade and sparkles like a soft diamond toy. The star sings with a small mouth moving gently to the lyric while clouds and moon friends sway behind it. Sparkles are slow dots and rays, gold and white, no flashing. Clean blue background, rounded toddler animation, no generated text, no letters. This scene follows the fourth sung line, \"Like a diamond in the sky.\" with gentle sparkle timing and no generated text or letters."
+      ],
+      "first_frame_prompt": [
+        "Close-up smiling golden star sparkling like soft diamond toy, singing mouth, moon and cloud friends behind, no text."
+      ],
+      "cut": [
+        true
+      ]
+    },
+    {
+      "scene_num": 5,
+      "video_prompts": [
+        "Final parade goodnight: the smiling golden star gently leads the moon, clouds, toy blocks, and plush shapes past the child's window as the child waves. The parade settles into the sky like a cozy mobile above the home. Warm gold and peach window light, soft blue night, calm ending, toddler-safe rounded shapes, no generated text, no letters. This closing scene is wordless: no dialogue, no singing, no lyric line, and no mouth-sync focus; use only gentle smiles, waving, twinkling, and instrumental bedtime music."
+      ],
+      "first_frame_prompt": [
+        "Child waving from cozy window as smiling star leads moon, clouds, toy blocks, and plush shapes through sky, no text."
+      ],
+      "cut": [
+        true
+      ]
+    }
+  ]
+}

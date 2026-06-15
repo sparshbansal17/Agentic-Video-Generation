@@ -1,0 +1,2 @@
+-e .[video]
+# Install flash-attn separately for the target CUDA/PyTorch build when needed.

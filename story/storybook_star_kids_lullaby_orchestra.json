@@ -1,0 +1,74 @@
+{
+  "story_name": "Twinkle Star Lullaby Sky",
+  "story_overview": "A dreamy five-scene painterly bedtime fantasy for children about a small smiling golden star and a curious child. The star glows in a moonlit sky, the child discovers it from a warm window, the star floats over soft hills and clouds, sparkles like a diamond, and the child waves goodnight beneath a gentle sky. Keep the scene magical but calm, child-safe, and emotionally warm. Use moonlit blues, soft lavender, pearl white, warm gold, gentle painterly lighting, and no text. The first four scenes map exactly to the four lullaby lines and carry subtitle_text for those lines. The fifth scene is a wordless visual goodnight close with no dialogue, no sung lyric, and no subtitle.",
+  "scenes": [
+    {
+      "scene_num": 1,
+      "video_prompts": [
+        "Dreamy painterly bedtime fantasy wide shot of a moonlit sky with soft layered clouds, a glowing crescent moon, and a small rounded golden star with a kind smiling face. The star slowly brightens and twinkles with warm gold light, as if a lullaby is beginning. The composition is calm and cinematic but still simple for children. Moonlit blue, lavender, pearl white, and gold palette, soft glowing highlights, no text, no scary darkness, no harsh contrast. This scene follows the first sung line, \"Twinkle, twinkle, little star,\" with gentle nursery-rhyme timing and no generated text or letters."
+      ],
+      "first_frame_prompt": [
+        "Dreamy painterly moonlit sky with layered soft clouds, crescent moon, and small smiling golden star glowing warmly, calm child-safe fantasy, no text."
+      ],
+      "cut": [
+        true
+      ],
+      "lyric_line": "Twinkle, twinkle, little star,",
+      "subtitle_text": "Twinkle, twinkle, little star,"
+    },
+    {
+      "scene_num": 2,
+      "video_prompts": [
+        "Warm bedroom window scene in a dreamy painterly style. A young child in soft pajamas stands near the glass, face gently lit by lamplight and moonlight, watching the smiling golden star outside. A blanket, small stuffed toy, and bedtime book are softly visible in the room. The child looks peaceful and curious rather than excited. Medium shot, warm gold interior light, cool blue-lavender night outside, soft vignette, no text, no scary shadows. This scene follows the second sung line, \"How I wonder what you are!\" with clear child-friendly expression and no generated text or letters."
+      ],
+      "first_frame_prompt": [
+        "Young child in pajamas peacefully watching a smiling golden star through a warm bedroom window, bedtime book and stuffed toy nearby, no text."
+      ],
+      "cut": [
+        true
+      ],
+      "lyric_line": "How I wonder what you are!",
+      "subtitle_text": "How I wonder what you are!"
+    },
+    {
+      "scene_num": 3,
+      "video_prompts": [
+        "The little smiling golden star drifts over a serene dream landscape of soft rolling hills, tiny sleeping houses, and slow moonlit clouds. Its glow makes a gentle path across the hills while the camera floats upward and forward. The world below feels safe, quiet, and full of bedtime wonder. Dreamy painterly storybook style, slightly cinematic wide lens, moonlit blue and lavender with warm gold highlights, no text, no scary elements. This scene follows the third sung line, \"Up above the world so high,\" with slow upward motion and no generated text or letters."
+      ],
+      "first_frame_prompt": [
+        "Smiling golden star drifting over soft rolling hills, tiny sleeping houses, and moonlit clouds, warm gold glow path, no text."
+      ],
+      "cut": [
+        true
+      ],
+      "lyric_line": "Up above the world so high,",
+      "subtitle_text": "Up above the world so high,"
+    },
+    {
+      "scene_num": 4,
+      "video_prompts": [
+        "Elegant close-up of the smiling golden star sparkling like a tiny diamond in a soft blue-lavender sky. The star rotates slowly while delicate gold, pearl white, and silver rays shimmer outward, and nearby clouds catch the light. Keep the friendly face clear and comforting. Macro close-up, centered composition, magical painterly glow, calm orchestral bedtime feeling, child-safe sparkle effects, no text. This scene follows the fourth sung line, \"Like a diamond in the sky.\" with gentle sparkle timing and no generated text or letters."
+      ],
+      "first_frame_prompt": [
+        "Macro close-up of smiling golden star sparkling like a diamond with gold, pearl white, and silver rays in a blue-lavender sky, no text."
+      ],
+      "cut": [
+        true
+      ],
+      "lyric_line": "Like a diamond in the sky.",
+      "subtitle_text": "Like a diamond in the sky."
+    },
+    {
+      "scene_num": 5,
+      "video_prompts": [
+        "Final dreamy wide shot: the child waves goodnight from the softly glowing bedroom window while the smiling golden star shines above with many tiny stars and the crescent moon. The camera slowly pulls back to show the warm home nestled under the peaceful sky. The mood is calm, magical, and comforting for bedtime. Painterly storybook fantasy, soft hills in the distance, moonlit blue, lavender, pearl white, and warm gold colors, no text, no scary elements. This closing scene is wordless: no dialogue, no singing, no lyric line, and no mouth-sync focus; use only gentle smiles, waving, twinkling, and instrumental bedtime music."
+      ],
+      "first_frame_prompt": [
+        "Child waving goodnight from a warm window to the smiling golden star in a dreamy moonlit sky with many stars and soft distant hills, no text."
+      ],
+      "cut": [
+        true
+      ]
+    }
+  ]
+}

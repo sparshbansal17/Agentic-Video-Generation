@@ -1,0 +1,2 @@
+-e .[audio-music]
+# ACE-Step 1.5, YuE, AudioCraft, and Stable Audio Tools are intentionally command-template engines.

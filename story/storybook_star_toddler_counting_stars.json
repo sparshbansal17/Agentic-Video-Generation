@@ -1,0 +1,74 @@
+{
+  "story_name": "Twinkle Toddler Goodnight Counting Stars",
+  "story_overview": "A five-clip toddler Twinkle singalong with a gentle educational counting-stars theme. A pajama child and smiling rounded golden star count glowing stars using simple gestures while every clip follows one spoken or sung lyric line. Clips 2 and 4 are singalong focus clips with mouth movement and subtitle_text metadata for postprocess subtitles. Keep visuals simple, bright, rounded, warm, and bedtime-safe. No generated text or letters inside the video image. The first four scenes map exactly to the four lullaby lines and carry subtitle_text for those lines. The fifth scene is a wordless visual goodnight close with no dialogue, no sung lyric, and no subtitle.",
+  "scenes": [
+    {
+      "scene_num": 1,
+      "lyric_line": "Twinkle, twinkle, little star,",
+      "video_prompts": [
+        "A cozy bedroom window opens to a soft blue night sky where one large smiling rounded golden star twinkles hello. A pajama child raises one finger gently as if noticing the first star while singing the first lyric. A few soft toys rest nearby. Toddler-friendly educational bedtime style, simple counting gesture, warm peach room light, gold glow, rounded shapes, no generated text, no letters, no clutter. This scene follows the first sung line, \"Twinkle, twinkle, little star,\" with gentle nursery-rhyme timing and no generated text or letters."
+      ],
+      "first_frame_prompt": [
+        "Pajama child by cozy window holding up one finger toward smiling golden star, warm bedroom, no text."
+      ],
+      "cut": [
+        true
+      ],
+      "subtitle_text": "Twinkle, twinkle, little star,"
+    },
+    {
+      "scene_num": 2,
+      "lyric_line": "How I wonder what you are!",
+      "subtitle_text": "How I wonder what you are!",
+      "video_prompts": [
+        "Medium close singalong shot of the pajama child looking at the smiling golden star and singing the lyric with clear rhythmic mouth movement. The child makes a soft questioning gesture with open hands, then points toward two tiny stars near the big star. Warm, bright, toddler-safe bedroom window framing, simple face, readable mouth, no generated text, no letters. This scene follows the second sung line, \"How I wonder what you are!\" with clear child-friendly expression and no generated text or letters."
+      ],
+      "first_frame_prompt": [
+        "Close singalong child by window, mouth ready to sing, open hands wondering, smiling golden star outside, no text."
+      ],
+      "cut": [
+        true
+      ]
+    },
+    {
+      "scene_num": 3,
+      "lyric_line": "Up above the world so high,",
+      "video_prompts": [
+        "The camera floats upward from the cozy home to a high gentle sky where three small glowing stars appear beside the smiling golden star. The child is seen tiny at the window below, looking up. Rounded rooftops and clouds make the world feel soft and safe. Bright toddler bedtime animation, simple counting rhythm, blue, mint, peach, white, and gold palette, no generated text, no letters. This scene follows the third sung line, \"Up above the world so high,\" with slow upward motion and no generated text or letters."
+      ],
+      "first_frame_prompt": [
+        "High sky with smiling golden star and three tiny glowing stars above cozy rounded home, child small at window, no text."
+      ],
+      "cut": [
+        true
+      ],
+      "subtitle_text": "Up above the world so high,"
+    },
+    {
+      "scene_num": 4,
+      "lyric_line": "Like a diamond in the sky.",
+      "subtitle_text": "Like a diamond in the sky.",
+      "video_prompts": [
+        "Close singalong shot of the smiling golden star shining like a soft diamond while the child appears in a small window below, singing along. The star's tiny friendly mouth moves gently to the lyric, and four small stars sparkle around it in an easy counting pattern. Slow shimmer, bright readable shapes, toddler-safe, no generated text, no letters, no flashing. This scene follows the fourth sung line, \"Like a diamond in the sky.\" with gentle sparkle timing and no generated text or letters."
+      ],
+      "first_frame_prompt": [
+        "Close-up smiling golden star like soft diamond with singing mouth, four tiny stars around it, child window below, no text."
+      ],
+      "cut": [
+        true
+      ]
+    },
+    {
+      "scene_num": 5,
+      "video_prompts": [
+        "Goodnight counting finale: five gentle stars glow above the cozy home while the pajama child waves from the window. The large smiling golden star twinkles back and the small stars pulse slowly one by one like a bedtime count. Warm room light, soft blue sky, rounded hills and clouds, calm toddler educational ending, no generated text, no letters. This closing scene is wordless: no dialogue, no singing, no lyric line, and no mouth-sync focus; use only gentle smiles, waving, twinkling, and instrumental bedtime music."
+      ],
+      "first_frame_prompt": [
+        "Five gentle stars above cozy home, pajama child waving from window, large smiling golden star twinkling back, no text."
+      ],
+      "cut": [
+        true
+      ]
+    }
+  ]
+}

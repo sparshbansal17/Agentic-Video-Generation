@@ -1,0 +1,74 @@
+{
+  "story_name": "Twinkle Star Playroom Goodnight",
+  "story_overview": "A brighter five-scene animated children's-book variation about a cheerful golden star and a pajama-wearing child. The star bounces playfully in the night sky, peeks into a warm playroom bedroom, guides a gentle dream parade of toys and clouds, sparkles close up, and helps the child wave goodnight. Keep the design warm, playful, uncluttered, and bedtime-safe. Use brighter child-friendly colors, rounded toy-like shapes, warm room light, soft blues, peach, mint, white, and gold. No text. The first four scenes map exactly to the four lullaby lines and carry subtitle_text for those lines. The fifth scene is a wordless visual goodnight close with no dialogue, no sung lyric, and no subtitle.",
+  "scenes": [
+    {
+      "scene_num": 1,
+      "video_prompts": [
+        "Bright animated children's-book night sky with soft blue clouds, a crescent moon, and a cheerful small rounded golden star with a smiling face. The star bounces lightly in place and twinkles in a playful rhythm, like it is saying hello to children. Use rounded toy-like shapes, warm gold glow, soft blue and mint accents, clear simple composition, wide shot, friendly and safe bedtime mood, no text, no scary elements, no harsh realism. This scene follows the first sung line, \"Twinkle, twinkle, little star,\" with gentle nursery-rhyme timing and no generated text or letters."
+      ],
+      "first_frame_prompt": [
+        "Bright child-friendly animated night sky, cheerful smiling golden star centered, soft blue clouds, crescent moon, rounded toy-like shapes, no text."
+      ],
+      "cut": [
+        true
+      ],
+      "lyric_line": "Twinkle, twinkle, little star,",
+      "subtitle_text": "Twinkle, twinkle, little star,"
+    },
+    {
+      "scene_num": 2,
+      "video_prompts": [
+        "Warm cozy playroom bedroom at night with a young child in pajamas near a window, surrounded by a few soft toys, blocks, a toy train, and picture books. The child spots the smiling golden star outside and points happily toward it. Warm peach lamplight and cool moonlight mix with the star's golden glow. Medium shot, bright animated children's-book style, rounded shapes, tidy child-safe room, gentle excitement, no text. This scene follows the second sung line, \"How I wonder what you are!\" with clear child-friendly expression and no generated text or letters."
+      ],
+      "first_frame_prompt": [
+        "Child in pajamas pointing happily at a smiling golden star outside a cozy playroom bedroom window, soft toys and books nearby, warm peach light, no text."
+      ],
+      "cut": [
+        true
+      ],
+      "lyric_line": "How I wonder what you are!",
+      "subtitle_text": "How I wonder what you are!"
+    },
+    {
+      "scene_num": 3,
+      "video_prompts": [
+        "The golden star floats above a playful dream path where soft toy blocks, tiny clouds, and sleepy little houses form a gentle bedtime parade below. The star leaves small golden sparkles that drift like bubbles, while the camera glides forward slowly. The scene is cheerful but calm, made for children, with rounded shapes, warm window lights, pastel blue, mint, peach, white, and gold colors. Animated children's-book style, no text, no scary elements. This scene follows the third sung line, \"Up above the world so high,\" with slow upward motion and no generated text or letters."
+      ],
+      "first_frame_prompt": [
+        "Smiling golden star floating above a playful dream path with toy blocks, tiny clouds, sleepy houses, and gold bubble-like sparkles, no text."
+      ],
+      "cut": [
+        true
+      ],
+      "lyric_line": "Up above the world so high,",
+      "subtitle_text": "Up above the world so high,"
+    },
+    {
+      "scene_num": 4,
+      "video_prompts": [
+        "Close-up of the cheerful golden star sparkling like a diamond-shaped toy jewel. The star slowly spins and sends out soft gold, white, and mint sparkles shaped like tiny dots and gentle rays. Its smiling face stays large, clear, and friendly for children. Macro close-up, centered, bright animated storybook style, clean blue background, soft clouds at the edges, playful but not overstimulating, no text. This scene follows the fourth sung line, \"Like a diamond in the sky.\" with gentle sparkle timing and no generated text or letters."
+      ],
+      "first_frame_prompt": [
+        "Macro close-up of cheerful smiling golden star sparkling like a toy jewel with soft gold, white, and mint sparkles, clean blue background, no text."
+      ],
+      "cut": [
+        true
+      ],
+      "lyric_line": "Like a diamond in the sky.",
+      "subtitle_text": "Like a diamond in the sky."
+    },
+    {
+      "scene_num": 5,
+      "video_prompts": [
+        "Ending scene in a bright warm bedtime style: the child waves goodnight from the playroom bedroom window, smiling peacefully as the golden star smiles back from a sky filled with many tiny twinkling stars. A few toys rest quietly on the windowsill and the room glows warmly behind the child. The camera slowly pulls back to the home and sky. Animated children's-book style, rounded shapes, warm peach and gold with soft blue night, safe cozy ending, no text. This closing scene is wordless: no dialogue, no singing, no lyric line, and no mouth-sync focus; use only gentle smiles, waving, twinkling, and instrumental bedtime music."
+      ],
+      "first_frame_prompt": [
+        "Child waving goodnight from a warm playroom window, smiling golden star and many small twinkling stars outside, cozy toys nearby, no text."
+      ],
+      "cut": [
+        true
+      ]
+    }
+  ]
+}
