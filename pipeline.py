@@ -17,7 +17,7 @@ from wan.configs import MAX_AREA_CONFIGS, SIZE_CONFIGS, SUPPORTED_SIZES, WAN_CON
 from wan.distributed.util import init_distributed_group
 from wan.utils.prompt_extend import DashScopePromptExpander, QwenPromptExpander
 from wan.utils.utils import save_video, str2bool
-from extract_keyframes import save_keyframes
+from extract_keyframes import save_keyframes, save_keyframes_simple
 
 
 def _parse_args():
@@ -47,6 +47,7 @@ def _parse_args():
     parser.add_argument("--mi2v", action="store_true", help="Whether to start from last frame of last video shot with MI2V")
     parser.add_argument("--mm2v", action="store_true", help="Whether to start from last frame of last video shot with MM2V")
     parser.add_argument("--fix", type=int, default=3, help="Whether to fix the first n keyframes.")
+    parser.add_argument("--keyframe_mode", type=str, default="hps", choices=["hps", "simple", "off"], help="Keyframe extraction mode after each generated shot.")
     parser.add_argument("--finetune_checkpoint_dir", type=str, default=None, help="The path to the finetune checkpoint.")
     parser.add_argument("--lora_weight_path", type=str, default=None, help="The path to the LoRA weight.")
     parser.add_argument("--lora_rank", type=int, default=None, help="The rank of LoRA weight.")
@@ -284,7 +285,10 @@ def main(args):
                 normalize=True,
                 value_range=(-1, 1)
             )
-            save_keyframes(f"{args.output_dir}/01_01.mp4")
+            if args.keyframe_mode == "hps":
+                save_keyframes(f"{args.output_dir}/01_01.mp4")
+            elif args.keyframe_mode == "simple":
+                save_keyframes_simple(f"{args.output_dir}/01_01.mp4")
             del video
             torch.cuda.empty_cache()
 
@@ -399,7 +403,10 @@ def main(args):
                     normalize=True,
                     value_range=(-1, 1)
                 )
-                save_keyframes(f"{args.output_dir}/{scene_num:02d}_{shot_num:02d}.mp4")
+                if args.keyframe_mode == "hps":
+                    save_keyframes(f"{args.output_dir}/{scene_num:02d}_{shot_num:02d}.mp4")
+                elif args.keyframe_mode == "simple":
+                    save_keyframes_simple(f"{args.output_dir}/{scene_num:02d}_{shot_num:02d}.mp4")
                 del video
                 torch.cuda.empty_cache()
 
