@@ -418,7 +418,7 @@ class AgenticArchitectureTests(unittest.TestCase):
             self.assertEqual(plan["character_bank"][0]["label"], "night_light")
             self.assertIn("night light glows", plan["scenes"][0]["video_prompt"])
 
-    def test_command_planner_invalid_json_fails_before_generation(self):
+    def test_command_planner_invalid_json_falls_back_and_continues(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
             planner_script = tmp_path / "bad_planner_backend.py"
@@ -429,20 +429,20 @@ class AgenticArchitectureTests(unittest.TestCase):
                 encoding="utf-8",
             )
             out = tmp_path / "bad_command_plan"
-            with self.assertRaises(RuntimeError):
-                run_workflow(
-                    topic_or_name="any lullaby",
-                    output_dir=out,
-                    mode="generate",
-                    planner_backend="command",
-                    planner_command=f"{sys.executable} {planner_script}",
-                    generate_audio=False,
-                    execute_video=False,
-                )
+            run_workflow(
+                topic_or_name="any lullaby",
+                output_dir=out,
+                mode="generate",
+                planner_backend="command",
+                planner_command=f"{sys.executable} {planner_script}",
+                generate_audio=False,
+                execute_video=False,
+            )
             planner_output = json.loads((out / "planner_agent_output.json").read_text(encoding="utf-8"))
             self.assertTrue(planner_output["used_fallback"])
+            self.assertEqual(planner_output["fallback_policy"], "continued_with_deterministic_local_plan")
             self.assertIn("planner decision did not provide lyrics", planner_output["error"])
-            self.assertFalse((out / "iterations").exists())
+            self.assertTrue((out / "iterations" / "001" / "production_plan.json").exists())
 
     def test_iterate_applies_revision_plan_to_next_iteration_json(self):
         with tempfile.TemporaryDirectory() as tmp:

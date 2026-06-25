@@ -410,6 +410,11 @@ def run_workflow(
         "command": planner_command,
         "used_fallback": planner.used_fallback,
         "error": planner.last_error,
+        "fallback_policy": (
+            "continued_with_deterministic_local_plan"
+            if planner_backend == "command" and planner.used_fallback
+            else None
+        ),
         "prompt": planner.last_prompt,
         "schema": planner.last_schema,
         "context": planner.last_context,
@@ -419,8 +424,6 @@ def run_workflow(
         root / "planner_agent_output.json",
         planner_output,
     )
-    if planner_backend == "command" and planner.used_fallback:
-        raise RuntimeError(f"command planner failed to produce a valid production plan: {planner.last_error}")
 
     iteration_count = 1 if mode in {"dry_run", "generate"} else max_iterations
     latest_report: EvaluationReport | None = None
