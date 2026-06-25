@@ -15,12 +15,13 @@ import json5
 
 DEFAULT_STYLE_PROMPT = (
     "gentle adult lullaby, warm bedtime nursery rhyme, clear intelligible vocal, "
-    "exactly pronounce the provided lyrics, "
+    "sing only the provided lyrics in order, exactly once per written line, "
+    "do not substitute, omit, invent, or reorder words, "
     "music box and celesta melody, glockenspiel star twinkles, light harp arpeggios, "
     "soft strings pad, very gentle brushed percussion, slow 3/4 sway, major key, "
     "dreamy starry night, magical but calm, child-friendly, warm and comforting"
 )
-MAX_AUDIO_PROMPT_CHARS = 900
+MAX_AUDIO_PROMPT_CHARS = 1600
 
 
 @dataclass
@@ -81,8 +82,18 @@ def _audio_style_prompt(story: dict, config: AudioConfig) -> str:
     for i, summary in enumerate(_scene_summaries(story), start=1):
         compact = " ".join(summary.split())
         scene_notes.append(f"scene {i}: {compact[:95]}")
+    metadata = story.get("agentic_metadata", {})
+    plan_music_prompt = str(metadata.get("music_prompt", "")).strip()
+    lyric_lines = [
+        str(scene.get("lyric_line", "")).strip()
+        for scene in story.get("scenes", [])
+        if str(scene.get("lyric_line", "")).strip()
+    ]
+    exact_lyrics = "; ".join(f"{i}. {line}" for i, line in enumerate(lyric_lines, start=1))
     prompt = (
         f"{DEFAULT_STYLE_PROMPT}, voice feel: {config.audio_voice_style}, "
+        f"planner audio direction: {plan_music_prompt}, "
+        f"exact lyric order: {exact_lyrics}, "
         "arrangement follows the full story arc with a soft opening, curious bedtime moment, "
         "gentle lift over the sleeping world, sparkling highlight, and peaceful goodnight cadence, "
         + ", ".join(scene_notes)
@@ -385,17 +396,19 @@ def _generate_scene_lyrics_mix(
     output_dir: Path,
 ) -> None:
     scene_starts, scene_durations = _scene_timing(output_dir)
-    lyric_lines = _lyric_lines_for_scenes(story, lyrics, max_lines=4)
-    if len(lyric_lines) < 4:
-        raise RuntimeError("scene_lyrics_mix requires four lyric lines for scenes 1-4.")
-    if len(scene_starts) < 4 or len(scene_durations) < 4:
-        raise RuntimeError("scene_lyrics_mix requires scene clips named like 01_01.mp4 through 04_01.mp4.")
+    lyric_lines = _lyric_lines_for_scenes(story, lyrics, max_lines=max(len(scene_starts), 1))
+    if not lyric_lines:
+        raise RuntimeError("scene_lyrics_mix requires at least one lyric line.")
+    if len(scene_starts) < len(lyric_lines) or len(scene_durations) < len(lyric_lines):
+        raise RuntimeError(
+            "scene_lyrics_mix requires one scene clip named like 01_01.mp4 for each lyric line."
+        )
 
     scene_work_dir = work_dir / "scene_lyrics_mix"
     scene_work_dir.mkdir(parents=True, exist_ok=True)
 
     backing_prompt = (
-        "instrumental only, no singing, no spoken words, no humming, karaoke backing track for Twinkle Twinkle Little Star, "
+        "instrumental only, no singing, no spoken words, no humming, karaoke backing track for the planned nursery rhyme, "
         "music box and celesta melody, glockenspiel star twinkles, light harp, soft strings, gentle 3/4 lullaby, "
         "child-friendly Cocomelon style, warm and bright, keep steady timing for separate vocal lines"
     )

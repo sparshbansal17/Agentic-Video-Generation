@@ -34,6 +34,32 @@ class CliDryRunTests(unittest.TestCase):
             self.assertEqual(manifest["stages"][1]["status"], "pending")
             self.assertTrue((out / "audio" / "audio_plan.json").exists())
 
+    def test_iterate_requires_command_review_unless_explicitly_allowed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "blocked"
+            code = main(["iterate", "--topic", "moon lullaby", "--output-dir", str(out)])
+            self.assertEqual(code, 2)
+            self.assertFalse(out.exists())
+
+    def test_iterate_allows_explicit_mock_review_for_debugging(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "allowed"
+            code = main(
+                [
+                    "iterate",
+                    "--topic",
+                    "moon lullaby",
+                    "--output-dir",
+                    str(out),
+                    "--allow-mock-review",
+                    "--audio-aligner",
+                    "none",
+                    "--no-generate-audio",
+                ]
+            )
+            self.assertEqual(code, 3)
+            self.assertTrue((out / "iterations" / "001" / "evaluation_report.json").exists())
+
 
 if __name__ == "__main__":
     unittest.main()

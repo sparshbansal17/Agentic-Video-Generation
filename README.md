@@ -16,7 +16,7 @@ This avoids the old failure mode where ACE-Step was asked to satisfy exact lyric
 
 ```text
 src/storymem_agentic/        Agentic orchestration, audio planning, evaluation, CLI
-audio_backends/              Backend adapter definitions live under the package
+src/storymem_agentic/audio_backends/  Re-exported backend command-template adapter API
 configs/audio/               Runtime backend command templates and mix defaults
 slurm/                       HPC entrypoints for dry-run and GPU workflows
 story/, wan/, pipeline.py    Upstream StoryMem/Wan code retained for compatibility
@@ -40,7 +40,7 @@ uv pip install -e '.[video]'
 uv pip install -e '.[audio-tts,audio-music,align]'
 ```
 
-Some engines, such as ACE-Step 1.5, YuE, AudioCraft, and Stable Audio Tools, are best installed in separate engine-specific environments and invoked through command templates in `configs/audio/default.yaml`.
+Some engines, such as ACE-Step 1.5, YuE, AudioCraft, and Stable Audio Tools, are best installed in separate engine-specific environments and invoked through command templates in `configs/audio/default.yaml`. The planning manifest records those templates for audit; real audio rendering in the full workflow is performed by `story_audio.py` / `postprocess-audio`.
 
 ## Dry Run
 

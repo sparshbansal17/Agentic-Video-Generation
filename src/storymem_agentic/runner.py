@@ -171,3 +171,118 @@ def run_agentic(
     run_manifest = _write_json(root / "run_manifest.json", manifest)
     audio_result.run_manifest.update({"path": str(run_manifest), **manifest})
     return audio_result
+
+
+def run_audio_postprocess(
+    *,
+    rhyme_file: str | Path,
+    story_json: str | Path,
+    output_dir: str | Path,
+    final_video: str | Path,
+    mode: str = "full_song",
+    voice_backend: str = "ace_step_full_song",
+    music_backend: str = "ace_step_full_song",
+    media_audio_mode: str = "full_song",
+    audio_output_suffix: str = "_with_music",
+    audio_voice_style: str = "gentle adult lullaby",
+    ace_step_cmd: str | None = None,
+    vocal_cmd: str | None = None,
+    backing_cmd: str | None = None,
+    musicgen_cmd: str | None = None,
+    ffmpeg_bin: str | None = None,
+    seed: int = 0,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    from story_audio import AudioConfig, generate_audio_for_story, _video_duration
+
+    root = Path(output_dir)
+    video_path = Path(final_video)
+    rhyme_path = Path(rhyme_file)
+    target_duration = _video_duration(video_path)
+    rhyme_text = rhyme_path.read_text(encoding="utf-8")
+
+    audio_result = write_audio_artifacts(
+        rhyme_text=rhyme_text,
+        story_json=story_json,
+        output_dir=root,
+        target_duration=target_duration,
+        mode=mode,
+        voice_backend=voice_backend,
+        music_backend=music_backend,
+        nested_audio_dir=True,
+    )
+
+    media_output: Path | None = None
+    if not dry_run:
+        media_output = generate_audio_for_story(
+            AudioConfig(
+                story_script_path=str(story_json),
+                output_dir=str(root),
+                final_video=str(video_path),
+                audio_mode=media_audio_mode,
+                vocal_backend=voice_backend,
+                backing_backend="musicgen" if music_backend == "musicgen" else "ace_step",
+                audio_voice_style=audio_voice_style,
+                audio_output_suffix=audio_output_suffix,
+                lyrics_file=str(audio_result.audio_plan_path.parent / "lyrics.txt"),
+                ace_step_cmd=ace_step_cmd,
+                vocal_cmd=vocal_cmd,
+                backing_cmd=backing_cmd,
+                musicgen_cmd=musicgen_cmd,
+                ffmpeg_bin=ffmpeg_bin,
+                seed=seed,
+            )
+        )
+
+    manifest = {
+        "version": "1.0",
+        "dry_run": dry_run,
+        "inputs": {
+            "rhyme_file": str(rhyme_path),
+            "story_json": str(story_json),
+            "output_dir": str(root),
+            "final_video": str(video_path),
+            "target_duration_seconds": target_duration,
+            "mode": mode,
+            "voice_backend": voice_backend,
+            "music_backend": music_backend,
+            "media_audio_mode": media_audio_mode,
+        },
+        "stages": [
+            asdict(
+                RunStage(
+                    name="audio_plan",
+                    status="complete",
+                    outputs=[
+                        str(audio_result.audio_plan_path.relative_to(root)),
+                        str(audio_result.mix_manifest_path.relative_to(root)),
+                        str(audio_result.backend_manifest_path.relative_to(root)),
+                    ],
+                )
+            ),
+            asdict(
+                RunStage(
+                    name="audio_render_and_mux",
+                    status="skipped" if dry_run else "complete",
+                    outputs=[str(media_output)] if media_output else [],
+                    notes="Uses story_audio media backend after agentic timing and backend manifests are written.",
+                )
+            ),
+            asdict(
+                RunStage(
+                    name="audio_evaluation",
+                    status="complete",
+                    outputs=[str(audio_result.evaluation_path.relative_to(root))],
+                )
+            ),
+        ],
+    }
+    manifest_path = _write_json(root / "audio_postprocess_manifest.json", manifest)
+    return {
+        "manifest_path": str(manifest_path),
+        "audio_plan_path": str(audio_result.audio_plan_path),
+        "mix_manifest_path": str(audio_result.mix_manifest_path),
+        "backend_manifest_path": str(audio_result.backend_manifest_path),
+        "evaluation_path": str(audio_result.evaluation_path),
+        "media_output": str(media_output) if media_output else None,
+    }

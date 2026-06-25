@@ -1,0 +1,57 @@
+{
+  "story_name": "storybook_star_agentic_3clip_test",
+  "story_overview": "A compact three-clip toddler Twinkle test planned for the full agentic workflow. The visual arc starts in a cozy playroom window, moves into a clear singalong reaction, and finishes with the smiling star rising above the sleepy world. The audio plan is a full-song nursery-rhyme pass so lyric timing and musical continuity are evaluated as one track.",
+  "agentic_plan": {
+    "objective": "Short 3-clip end-to-end test for scene planning, StoryMem generation, audio generation, muxing, evaluation, and tuning recommendations.",
+    "video_strategy": "Use one shot per scene, simple toddler-safe compositions, no generated text inside frames, strong scene identity, and clear continuity through the smiling golden star.",
+    "audio_strategy": "Use one full-song ACE-Step pass for the three lyric lines. Avoid per-scene sung segments in this test so voice and music continuity are tested as designed.",
+    "evaluation_strategy": "Check clip count, final video existence, audio stream presence, mux duration, and generated agentic manifests. Write tuning recommendations for any failed checks."
+  },
+  "scenes": [
+    {
+      "scene_num": 1,
+      "lyric_line": "Twinkle, twinkle, little star,",
+      "audio_description": "Opening lyric begins immediately with a warm clear nursery vocal over soft music box, celesta, and tiny glockenspiel twinkles.",
+      "video_prompts": [
+        "Bright toddler playroom bedroom at night, viewed from inside near a round window. A small rounded golden star with a friendly smiling face twinkles just outside in a soft blue sky while a pajama child watches with sleepy happy eyes. Warm peach lamp glow, mint toys, simple blocks, rounded storybook shapes, slow gentle camera push, no generated text, no letters, no scary elements. This scene follows the lyric \"Twinkle, twinkle, little star,\" with calm nursery-rhyme timing."
+      ],
+      "first_frame_prompt": [
+        "Cozy toddler playroom at night, pajama child by round window, smiling golden star outside, soft toys, warm peach light, no text."
+      ],
+      "cut": [
+        true
+      ],
+      "subtitle_text": "Twinkle, twinkle, little star,"
+    },
+    {
+      "scene_num": 2,
+      "lyric_line": "How I wonder what you are!",
+      "audio_description": "Second lyric is a curious singalong line with the vocal slightly forward and the music bed gently ducked under the words.",
+      "video_prompts": [
+        "Medium close singalong shot of the pajama child facing the window and camera at a gentle angle, smiling and singing with clear rhythmic mouth movement. The child points softly toward the smiling golden star outside, then opens both hands in wonder. Cozy toys stay softly in the background, warm peach and gold light inside, soft blue night outside, toddler-safe rounded animation, no generated text, no letters."
+      ],
+      "first_frame_prompt": [
+        "Pajama child close to window, smiling and gesturing with wonder toward friendly golden star, warm playroom, no text."
+      ],
+      "cut": [
+        false
+      ],
+      "subtitle_text": "How I wonder what you are!"
+    },
+    {
+      "scene_num": 3,
+      "lyric_line": "Up above the world so high,",
+      "audio_description": "Final test lyric lifts gently, with the music swelling into a calm bedtime ending and a short fade-out.",
+      "video_prompts": [
+        "Dreamy upward view of the smiling golden star floating above a simple toy-like town and rounded clouds. The star glides higher in the soft blue night, leaving gentle gold sparkles like bubbles while the camera follows with a calm lift. Tiny warm windows glow below, a crescent moon rests nearby, toddler storybook style, blue, mint, peach, white, and gold palette, no generated text, no letters, uncluttered bedtime-safe ending."
+      ],
+      "first_frame_prompt": [
+        "Smiling golden star above rounded toy town and clouds, soft blue night, warm tiny windows, no text."
+      ],
+      "cut": [
+        false
+      ],
+      "subtitle_text": "Up above the world so high,"
+    }
+  ]
+}

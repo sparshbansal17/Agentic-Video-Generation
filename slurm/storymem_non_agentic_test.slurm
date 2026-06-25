@@ -5,9 +5,9 @@
 #SBATCH --partition=ai
 #SBATCH --qos=preemptible
 #SBATCH --account=aarc
-#SBATCH --gres=gpu:1
-#SBATCH --cpus-per-task=14
-#SBATCH --time=02:00:00
+#SBATCH --gres=gpu:4
+#SBATCH --cpus-per-task=56
+#SBATCH --time=01:30:00
 
 set -euo pipefail
 umask 002
@@ -18,26 +18,28 @@ cd "${SCRIPT_DIR}"
 
 mkdir -p logs results .hf-cache .torch-cache .tmp .pip-cache
 
-module load conda/2026.03
+module load python
 
-if [ -d "${SCRIPT_DIR}/.conda/storymem" ]; then
-  DEFAULT_CONDA_ENV="${SCRIPT_DIR}/.conda/storymem"
-else
-  DEFAULT_CONDA_ENV="${UPSTREAM_STORYMEM_DIR}/.conda/storymem"
+VENV_DIR="${VENV_DIR:-${SCRIPT_DIR}/.venv}"
+if [ ! -x "${VENV_DIR}/bin/python" ]; then
+  echo "Python venv does not exist or is not executable: ${VENV_DIR}" >&2
+  echo "Create it with: scripts/bootstrap_venv.sh" >&2
+  exit 2
 fi
-CONDA_ENV="${CONDA_ENV:-${DEFAULT_CONDA_ENV}}"
-source "$(conda info --base)/etc/profile.d/conda.sh"
-conda activate "${CONDA_ENV}"
+source "${VENV_DIR}/bin/activate"
 
+unset PYTHONHOME
 export PYTHONNOUSERSITE=1
+export PYTHONPATH="${SCRIPT_DIR}${PYTHONPATH:+:${PYTHONPATH}}"
 export HF_HOME="${HF_HOME:-${SCRIPT_DIR}/.hf-cache}"
 export TRANSFORMERS_CACHE="${TRANSFORMERS_CACHE:-${HF_HOME}/transformers}"
 export TORCH_HOME="${TORCH_HOME:-${SCRIPT_DIR}/.torch-cache}"
 export TMPDIR="${TMPDIR:-${SCRIPT_DIR}/.tmp}"
 export PIP_CACHE_DIR="${PIP_CACHE_DIR:-${SCRIPT_DIR}/.pip-cache}"
 
-NGPUS="${NGPUS:-1}"
-MASTER_PORT="${MASTER_PORT:-9999}"
+NGPUS="${NGPUS:-4}"
+ULYSSES_SIZE="${ULYSSES_SIZE:-1}"
+MASTER_PORT="${MASTER_PORT:-$((10000 + SLURM_JOB_ID % 50000))}"
 DISTRIBUTED_ARGS=(--nproc_per_node="${NGPUS}" --master_port="${MASTER_PORT}")
 
 STORY_SCRIPT="${STORY_SCRIPT:-story/storybook_star_toddler_playroom_singalong.json}"
@@ -54,12 +56,13 @@ T2V_MODEL_PATH="${T2V_MODEL_PATH:-${DEFAULT_MODEL_ROOT}/Wan2.2-T2V-A14B}"
 I2V_MODEL_PATH="${I2V_MODEL_PATH:-${DEFAULT_MODEL_ROOT}/Wan2.2-I2V-A14B}"
 LORA_WEIGHT_PATH="${LORA_WEIGHT_PATH:-${DEFAULT_MODEL_ROOT}/StoryMem/Wan2.2-MI2V-A14B}"
 SIZE="${SIZE:-832*480}"
+FRAME_NUM="${FRAME_NUM:-41}"
 MAX_MEMORY_SIZE="${MAX_MEMORY_SIZE:-10}"
 SEED="${SEED:-0}"
 FFMPEG_BIN="${FFMPEG_BIN:-/home/bansa125/bin/ffmpeg}"
 KEYFRAME_MODE="${KEYFRAME_MODE:-simple}"
 
-for REQUIRED_PATH in "${CONDA_ENV}" "${T2V_MODEL_PATH}" "${I2V_MODEL_PATH}" "${LORA_WEIGHT_PATH}"; do
+for REQUIRED_PATH in "${VENV_DIR}" "${T2V_MODEL_PATH}" "${I2V_MODEL_PATH}" "${LORA_WEIGHT_PATH}"; do
   if [ ! -e "${REQUIRED_PATH}" ]; then
     echo "Required path does not exist: ${REQUIRED_PATH}" >&2
     exit 2
@@ -80,13 +83,14 @@ COMMON_ARGS=(
   --i2v_model_path "${I2V_MODEL_PATH}"
   --lora_weight_path "${LORA_WEIGHT_PATH}"
   --size "${SIZE}"
+  --frame_num "${FRAME_NUM}"
   --max_memory_size "${MAX_MEMORY_SIZE}"
   --output_dir "${OUTPUT_PATH}"
   --log_file "${LOG_FILE}"
   --seed "${SEED}"
   --ffmpeg_bin "${FFMPEG_BIN}"
   --keyframe_mode "${KEYFRAME_MODE}"
-  --ulysses_size "${NGPUS}"
+  --ulysses_size "${ULYSSES_SIZE}"
   --offload_model
   --lora_rank 128
   --mi2v
@@ -101,6 +105,7 @@ mkdir -p "${OUTPUT_PATH}"
 echo "Running non-agentic StoryMem first-shot test"
 echo "story: ${STORY_SCRIPT}"
 echo "output: ${OUTPUT_PATH}"
+echo "distributed: nproc_per_node=${NGPUS}, ulysses_size=${ULYSSES_SIZE}"
 
 torchrun "${DISTRIBUTED_ARGS[@]}" pipeline.py \
   "${COMMON_ARGS[@]}" \

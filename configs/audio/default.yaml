@@ -21,22 +21,22 @@ backends:
   cosyvoice:
     kind: voice
     command: >-
-      python engines/cosyvoice_infer.py --text '${text}' --style '${voice_style}'
+      cosyvoice-infer --text '${text}' --style '${voice_style}'
       --output '${output_file}'
   musicgen:
     kind: music
     command: >-
-      python engines/musicgen_infer.py --prompt '${music_prompt}'
+      musicgen-generate --prompt '${music_prompt}'
       --duration ${duration} --output '${output_file}'
   ace_step_full_song:
     kind: song
     command: >-
-      python engines/acestep_song.py --lyrics-file '${lyrics_file}'
+      acestep-generate --lyrics-file '${lyrics_file}'
       --prompt-file '${prompt_file}' --duration ${duration} --output '${output_file}'
   yue_full_song:
     kind: song
     command: >-
-      python engines/yue_song.py --genre-txt '${genre_file}'
+      yue-generate --genre-txt '${genre_file}'
       --lyrics-txt '${lyrics_file}' --output-dir '${output_dir}'
   whisperx:
     kind: aligner

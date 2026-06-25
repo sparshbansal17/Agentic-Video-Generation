@@ -4,7 +4,10 @@ import json
 from pathlib import Path
 from typing import Any, Iterable
 
+from .backends import load_backend_config
 from .schemas import AudioLinePlan, AudioMode, AudioPlan, SceneHint
+
+_CONFIG_MIX = load_backend_config().get("mix", {})
 
 DEFAULT_MIX = {
     "sample_rate": 48000,
@@ -14,7 +17,7 @@ DEFAULT_MIX = {
     "max_time_stretch_percent": 8.0,
     "line_boundary_tolerance_ms": 350,
     "duration_tolerance_ms": 250,
-}
+} | {str(key): value for key, value in _CONFIG_MIX.items()}
 
 DEFAULT_REGENERATION_POLICY = {
     "voice_bed": ["regenerate_voice", "adjust_pauses", "regenerate_music", "adjust_mix"],
@@ -57,6 +60,11 @@ def _allocate_lines(
                 start_seconds=start,
                 end_seconds=max(end, start + 0.5),
                 subtitle=hint.subtitle_text if hint and hint.subtitle_text else text,
+                clip_duration_seconds=hint.duration_seconds if hint else None,
+                vocal_style="gentle lullaby vocal" if text else "instrumental",
+                music_style="soft music box, celesta, glockenspiel, warm strings",
+                expected_scene_mood="calm bedtime wonder",
+                boundary_behavior="fade" if index == line_count else "hold",
             )
         )
     return plans
