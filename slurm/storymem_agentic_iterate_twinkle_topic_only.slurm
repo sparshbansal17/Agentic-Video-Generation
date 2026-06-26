@@ -3,7 +3,7 @@
 #SBATCH --output=logs/storymem_agentic_topic_twinkle_%j.out
 #SBATCH --error=logs/storymem_agentic_topic_twinkle_%j.err
 #SBATCH --partition=ai
-#SBATCH --qos=preemptible
+#SBATCH --qos=normal
 #SBATCH --account=aarc
 #SBATCH --gres=gpu:8
 #SBATCH --cpus-per-task=112
