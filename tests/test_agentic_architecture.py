@@ -104,6 +104,44 @@ class AgenticArchitectureTests(unittest.TestCase):
         self.assertEqual(revision.preserve_scenes, [1, 2, 3])
         self.assertTrue(revision.regenerate_audio)
 
+    def test_feedback_ignores_non_mapping_model_suggestions(self):
+        plan = self._plan()
+        report = EvaluationReport(
+            version="1.0",
+            passed=False,
+            artifact_checks={
+                "storymem_compatible_plan": True,
+                "clip_count": True,
+                "final_video_exists": True,
+                "has_video_stream": True,
+                "has_audio_stream": True,
+                "has_subtitles": True,
+                "duration_match": True,
+            },
+            scene_reports=[],
+            reviewer_reports=[
+                ReviewerReport(
+                    reviewer="ContinuityReviewAgent",
+                    passed=False,
+                    failure_reasons=["character_drift"],
+                    evidence={
+                        "target_scenes": [2],
+                        "prompt_revisions": "met",
+                        "first_frame_prompt_revisions": "met",
+                        "subtitle_timing_adjustments": "met",
+                        "mix_adjustments": "met",
+                    },
+                )
+            ],
+            regeneration_targets=[],
+            failure_reasons=["character_drift"],
+        )
+
+        revision = build_revision_plan(plan, report)
+
+        self.assertEqual(revision.target_scenes, [2])
+        self.assertIn("2", revision.prompt_revisions)
+
     def test_cli_dry_run_writes_iteration_layout(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)

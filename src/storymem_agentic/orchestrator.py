@@ -497,12 +497,16 @@ def run_workflow(
         cached_paths = existing_iteration_paths(root, iteration)
         cached_report_path = cached_paths["iteration_dir"] / "evaluation_report.json"
         cached_revision_path = cached_paths["iteration_dir"] / "revision_plan.json"
-        if mode == "iterate" and cached_report_path.exists() and cached_revision_path.exists():
+        if mode == "iterate" and cached_report_path.exists():
             latest_paths = cached_paths
             if cached_paths["production_plan"].exists():
                 plan = ProductionPlan.from_dict(json.loads(cached_paths["production_plan"].read_text(encoding="utf-8")))
             latest_report = EvaluationReport.from_dict(json.loads(cached_report_path.read_text(encoding="utf-8")))
-            cached_revision = RevisionPlan(**json.loads(cached_revision_path.read_text(encoding="utf-8")))
+            if cached_revision_path.exists():
+                cached_revision = RevisionPlan(**json.loads(cached_revision_path.read_text(encoding="utf-8")))
+            else:
+                cached_revision = build_revision_plan(plan, latest_report)
+                write_json(cached_revision_path, cached_revision.to_dict())
             latest_final_candidate = (
                 cached_paths["generated_dir"] / "generated_subtitled_with_music.mp4"
                 if (cached_paths["generated_dir"] / "generated_subtitled_with_music.mp4").exists()

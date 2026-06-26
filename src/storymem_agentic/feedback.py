@@ -3,9 +3,23 @@ from __future__ import annotations
 from .schemas import EvaluationReport, ProductionPlan, RevisionPlan, quantize_seconds
 
 
+def _mapping(value: object) -> dict:
+    return value if isinstance(value, dict) else {}
+
+
 def build_revision_plan(plan: ProductionPlan, report: EvaluationReport) -> RevisionPlan:
     failed = set(report.regeneration_targets)
     reviewer_evidence = {item.reviewer: item.evidence for item in report.reviewer_reports}
+
+    if report.passed:
+        return RevisionPlan(
+            version="1.0",
+            status="accepted",
+            preserve_scenes=[scene.scene_num for scene in plan.scenes],
+            rationale=["evaluation passed"],
+            reviewer_evidence=reviewer_evidence,
+        )
+
     model_prompt_revisions: dict[str, str] = {}
     model_first_frame_revisions: dict[str, str] = {}
     model_subtitle_adjustments: dict[str, dict[str, float]] = {}
@@ -18,28 +32,19 @@ def build_revision_plan(plan: ProductionPlan, report: EvaluationReport) -> Revis
                 failed.add(int(scene_num))
             except (TypeError, ValueError):
                 continue
-        for key, value in dict(evidence.get("prompt_revisions") or {}).items():
+        for key, value in _mapping(evidence.get("prompt_revisions")).items():
             model_prompt_revisions[str(key)] = str(value)
-        for key, value in dict(evidence.get("first_frame_prompt_revisions") or {}).items():
+        for key, value in _mapping(evidence.get("first_frame_prompt_revisions")).items():
             model_first_frame_revisions[str(key)] = str(value)
-        for key, value in dict(evidence.get("subtitle_timing_adjustments") or {}).items():
+        for key, value in _mapping(evidence.get("subtitle_timing_adjustments")).items():
             if isinstance(value, dict):
                 model_subtitle_adjustments[str(key)] = value
-        model_mix_adjustments.update(dict(evidence.get("mix_adjustments") or {}))
+        model_mix_adjustments.update(_mapping(evidence.get("mix_adjustments")))
         if evidence.get("audio_prompt_revision"):
             model_audio_revisions.append(str(evidence["audio_prompt_revision"]))
     for scene in plan.scenes:
         if any(dep in failed for dep in scene.regeneration_dependencies):
             failed.add(scene.scene_num)
-
-    if report.passed:
-        return RevisionPlan(
-            version="1.0",
-            status="accepted",
-            preserve_scenes=[scene.scene_num for scene in plan.scenes],
-            rationale=["evaluation passed"],
-            reviewer_evidence=reviewer_evidence,
-        )
 
     failed_reviewers = {item.reviewer for item in report.reviewer_reports if not item.passed}
     whisperx_failed = "WhisperXLyricTimingAgent" in failed_reviewers
