@@ -3,7 +3,7 @@
 #SBATCH --output=logs/storymem_agentic_topic_twinkle_%j.out
 #SBATCH --error=logs/storymem_agentic_topic_twinkle_%j.err
 #SBATCH --partition=ai
-#SBATCH --qos=normal
+#SBATCH --qos=preemptible
 #SBATCH --account=aarc
 #SBATCH --gres=gpu:8
 #SBATCH --cpus-per-task=112
@@ -47,6 +47,7 @@ NGPUS="${NGPUS:-8}"
 STORYMEM_T5_CPU="${STORYMEM_T5_CPU:-0}"
 SEED="${SEED:-301}"
 MAX_ITERATIONS="${MAX_ITERATIONS:-2}"
+CLIP_COUNT="${CLIP_COUNT:-4}"
 PLANNER_MODEL="${PLANNER_MODEL:-Qwen/Qwen2-VL-7B-Instruct}"
 PLANNER_CMD="${PLANNER_CMD:-${VENV_DIR}/bin/python ${AGENTIC_DIR}/scripts/local_lullaby_planner.py --model ${PLANNER_MODEL} --debug-output ${OUTPUT_PATH}/planner_raw_output.txt}"
 REVIEWER_MODEL="${REVIEWER_MODEL:-Qwen/Qwen2-VL-7B-Instruct}"
@@ -109,6 +110,7 @@ echo "planner_model: ${PLANNER_MODEL}"
 echo "reviewer_model: ${REVIEWER_MODEL}"
 echo "review_backend: ${REVIEW_BACKEND}"
 echo "max_iterations: ${MAX_ITERATIONS}"
+echo "clip_count: ${CLIP_COUNT}"
 echo "storymem_dir: ${STORYMEM_DIR}"
 echo "gpus: ${NGPUS}"
 
@@ -121,6 +123,7 @@ python -m storymem_agentic.cli iterate \
   --topic "${TOPIC}" \
   --output-dir "${OUTPUT_PATH}" \
   --max-iterations "${MAX_ITERATIONS}" \
+  --clip-count "${CLIP_COUNT}" \
   --seed "${SEED}" \
   --storymem-dir "${STORYMEM_DIR}" \
   --t2v-model-path "${T2V_MODEL_PATH}" \

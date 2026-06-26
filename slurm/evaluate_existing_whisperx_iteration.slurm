@@ -3,7 +3,7 @@
 #SBATCH --output=logs/agentic_whisperx_eval_%j.out
 #SBATCH --error=logs/agentic_whisperx_eval_%j.err
 #SBATCH --partition=ai
-#SBATCH --qos=normal
+#SBATCH --qos=preemptible
 #SBATCH --account=aarc
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=14
