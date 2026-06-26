@@ -512,6 +512,11 @@ def run_workflow(
                 if (cached_paths["generated_dir"] / "generated_subtitled_with_music.mp4").exists()
                 else resolve_storymem_video(cached_paths["generated_dir"])
             )
+            cached_audio_result_path = cached_paths["iteration_dir"] / "audio_postprocess_result.json"
+            if cached_audio_result_path.exists():
+                cached_audio_result = json.loads(cached_audio_result_path.read_text(encoding="utf-8"))
+                if cached_audio_result.get("fallback_from_full_song"):
+                    current_media_audio_mode = "scene_lyrics_mix"
             if latest_report.passed:
                 break
             if cached_revision.target_scenes:
