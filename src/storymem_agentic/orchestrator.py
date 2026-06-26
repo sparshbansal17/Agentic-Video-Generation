@@ -16,7 +16,7 @@ from .media_evaluator import evaluate_iteration
 from .mixer import build_mix_manifest, write_mix_manifest
 from .planner import PromptPlannerAgent
 from .runner import run_audio_postprocess
-from .schemas import EvaluationReport, NurseryRhymeInput, ProductionPlan, SceneHint
+from .schemas import EvaluationReport, NurseryRhymeInput, ProductionPlan, RevisionPlan, SceneHint
 from .story_writer import rhyme_text_from_plan, story_from_plan
 
 
@@ -129,6 +129,21 @@ def write_iteration_artifacts(root: Path, iteration: int, plan: ProductionPlan, 
     return paths
 
 
+def existing_iteration_paths(root: Path, iteration: int) -> dict[str, Path]:
+    iteration_dir = root / "iterations" / f"{iteration:03d}"
+    generated_dir = iteration_dir / "generated"
+    return {
+        "iteration_dir": iteration_dir,
+        "generated_dir": generated_dir,
+        "production_plan": iteration_dir / "production_plan.json",
+        "story": iteration_dir / "story.json",
+        "story_t2v_first_shot": iteration_dir / "story_t2v_first_shot.json",
+        "audio_plan": iteration_dir / "audio_plan.json",
+        "mix_manifest": iteration_dir / "mix_manifest.json",
+        "backend_manifest": iteration_dir / "backend_invocations.json",
+    }
+
+
 def build_storymem_commands(
     *,
     story_json: Path,
@@ -143,6 +158,10 @@ def build_storymem_commands(
     max_memory_size: int = 10,
     ffmpeg_bin: str = "ffmpeg",
     t5_cpu: bool = False,
+    offload_model: bool = False,
+    sample_steps: int | None = None,
+    frame_num: int | None = None,
+    keyframe_mode: str = "hps",
 ) -> list[list[str]]:
     story_json = story_json.resolve()
     first_shot_story_json = first_shot_story_json.resolve() if first_shot_story_json else None
@@ -176,10 +195,17 @@ def build_storymem_commands(
         "--t5_fsdp",
         "--ulysses_size",
         str(nproc_per_node),
-        "--offload_model",
         "--lora_rank",
         "128",
+        "--keyframe_mode",
+        keyframe_mode,
         ]
+        if offload_model:
+            command.append("--offload_model")
+        if sample_steps is not None:
+            command.extend(["--sample_steps", str(sample_steps)])
+        if frame_num is not None:
+            command.extend(["--frame_num", str(frame_num)])
         if t5_cpu:
             command.append("--t5_cpu")
         if mi2v:
@@ -204,6 +230,10 @@ def build_storymem_continuation_command(
     max_memory_size: int = 10,
     ffmpeg_bin: str = "ffmpeg",
     t5_cpu: bool = False,
+    offload_model: bool = False,
+    sample_steps: int | None = None,
+    frame_num: int | None = None,
+    keyframe_mode: str = "hps",
 ) -> list[str]:
     story_json = story_json.resolve()
     output_dir = output_dir.resolve()
@@ -234,11 +264,18 @@ def build_storymem_continuation_command(
         "--t5_fsdp",
         "--ulysses_size",
         str(nproc_per_node),
-        "--offload_model",
         "--lora_rank",
         "128",
+        "--keyframe_mode",
+        keyframe_mode,
         "--mi2v",
     ]
+    if offload_model:
+        command.append("--offload_model")
+    if sample_steps is not None:
+        command.extend(["--sample_steps", str(sample_steps)])
+    if frame_num is not None:
+        command.extend(["--frame_num", str(frame_num)])
     if t5_cpu:
         command.append("--t5_cpu")
     return command
@@ -365,6 +402,10 @@ def run_workflow(
     nproc_per_node: int = 8,
     ffmpeg_bin: str = "ffmpeg",
     storymem_t5_cpu: bool = False,
+    storymem_offload_model: bool = False,
+    storymem_sample_steps: int | None = None,
+    storymem_frame_num: int | None = None,
+    storymem_keyframe_mode: str = "hps",
     execute_video: bool = False,
     character_db_path: str | Path | None = None,
     planner_backend: str = "mock",
@@ -434,6 +475,37 @@ def run_workflow(
     current_media_audio_mode = media_audio_mode
 
     for iteration in range(1, iteration_count + 1):
+        cached_paths = existing_iteration_paths(root, iteration)
+        cached_report_path = cached_paths["iteration_dir"] / "evaluation_report.json"
+        cached_revision_path = cached_paths["iteration_dir"] / "revision_plan.json"
+        if mode == "iterate" and cached_report_path.exists() and cached_revision_path.exists():
+            latest_paths = cached_paths
+            if cached_paths["production_plan"].exists():
+                plan = ProductionPlan.from_dict(json.loads(cached_paths["production_plan"].read_text(encoding="utf-8")))
+            latest_report = EvaluationReport.from_dict(json.loads(cached_report_path.read_text(encoding="utf-8")))
+            cached_revision = RevisionPlan(**json.loads(cached_revision_path.read_text(encoding="utf-8")))
+            latest_final_candidate = (
+                cached_paths["generated_dir"] / "generated_subtitled_with_music.mp4"
+                if (cached_paths["generated_dir"] / "generated_subtitled_with_music.mp4").exists()
+                else resolve_storymem_video(cached_paths["generated_dir"])
+            )
+            if latest_report.passed:
+                break
+            if cached_revision.target_scenes:
+                first_target = min(cached_revision.target_scenes)
+                reuse_generated_video_dir = cached_paths["generated_dir"] if first_target > 1 else None
+                visual_regeneration_start_scene = first_target if first_target > 1 else None
+            elif cached_revision.regenerate_audio:
+                reuse_generated_video_dir = cached_paths["generated_dir"]
+                visual_regeneration_start_scene = None
+                if current_media_audio_mode == "full_song" and _is_whisperx_timing_failure(latest_report):
+                    current_media_audio_mode = "scene_lyrics_mix"
+            else:
+                reuse_generated_video_dir = None
+                visual_regeneration_start_scene = None
+            plan = apply_revision_plan(plan, cached_revision)
+            continue
+
         latest_paths = write_iteration_artifacts(root, iteration, plan, dry_run=mode == "dry_run")
         commands = []
         if mode in {"generate", "iterate"}:
@@ -456,6 +528,10 @@ def run_workflow(
                             nproc_per_node=nproc_per_node,
                             ffmpeg_bin=ffmpeg_bin,
                             t5_cpu=storymem_t5_cpu,
+                            offload_model=storymem_offload_model,
+                            sample_steps=storymem_sample_steps,
+                            frame_num=storymem_frame_num,
+                            keyframe_mode=storymem_keyframe_mode,
                         )
                     ]
                     write_json(
@@ -490,6 +566,10 @@ def run_workflow(
                     nproc_per_node=nproc_per_node,
                     ffmpeg_bin=ffmpeg_bin,
                     t5_cpu=storymem_t5_cpu,
+                    offload_model=storymem_offload_model,
+                    sample_steps=storymem_sample_steps,
+                    frame_num=storymem_frame_num,
+                    keyframe_mode=storymem_keyframe_mode,
                 )
                 write_json(latest_paths["iteration_dir"] / "storymem_commands.json", {"commands": commands})
                 if execute_video:

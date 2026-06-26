@@ -8,6 +8,7 @@
 #SBATCH --gres=gpu:8
 #SBATCH --cpus-per-task=112
 #SBATCH --time=02:00:00
+#SBATCH --requeue
 
 set -euo pipefail
 umask 002
@@ -45,6 +46,10 @@ LORA_WEIGHT_PATH="${LORA_WEIGHT_PATH:-${STORYMEM_DIR}/models/StoryMem/Wan2.2-MI2
 FFMPEG_BIN="${FFMPEG_BIN:-/home/bansa125/bin/ffmpeg}"
 NGPUS="${NGPUS:-8}"
 STORYMEM_T5_CPU="${STORYMEM_T5_CPU:-0}"
+STORYMEM_OFFLOAD_MODEL="${STORYMEM_OFFLOAD_MODEL:-0}"
+STORYMEM_SAMPLE_STEPS="${STORYMEM_SAMPLE_STEPS:-}"
+STORYMEM_FRAME_NUM="${STORYMEM_FRAME_NUM:-}"
+STORYMEM_KEYFRAME_MODE="${STORYMEM_KEYFRAME_MODE:-simple}"
 SEED="${SEED:-301}"
 MAX_ITERATIONS="${MAX_ITERATIONS:-2}"
 CLIP_COUNT="${CLIP_COUNT:-4}"
@@ -113,11 +118,25 @@ echo "max_iterations: ${MAX_ITERATIONS}"
 echo "clip_count: ${CLIP_COUNT}"
 echo "storymem_dir: ${STORYMEM_DIR}"
 echo "gpus: ${NGPUS}"
+echo "storymem_offload_model: ${STORYMEM_OFFLOAD_MODEL}"
+echo "storymem_sample_steps: ${STORYMEM_SAMPLE_STEPS:-default}"
+echo "storymem_frame_num: ${STORYMEM_FRAME_NUM:-default}"
+echo "storymem_keyframe_mode: ${STORYMEM_KEYFRAME_MODE}"
 
 STORYMEM_EXTRA_ARGS=()
 if [ "${STORYMEM_T5_CPU}" = "1" ]; then
   STORYMEM_EXTRA_ARGS+=(--storymem-t5-cpu)
 fi
+if [ "${STORYMEM_OFFLOAD_MODEL}" = "1" ]; then
+  STORYMEM_EXTRA_ARGS+=(--storymem-offload-model)
+fi
+if [ -n "${STORYMEM_SAMPLE_STEPS}" ]; then
+  STORYMEM_EXTRA_ARGS+=(--storymem-sample-steps "${STORYMEM_SAMPLE_STEPS}")
+fi
+if [ -n "${STORYMEM_FRAME_NUM}" ]; then
+  STORYMEM_EXTRA_ARGS+=(--storymem-frame-num "${STORYMEM_FRAME_NUM}")
+fi
+STORYMEM_EXTRA_ARGS+=(--storymem-keyframe-mode "${STORYMEM_KEYFRAME_MODE}")
 
 python -m storymem_agentic.cli iterate \
   --topic "${TOPIC}" \

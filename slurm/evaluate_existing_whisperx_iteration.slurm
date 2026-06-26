@@ -8,6 +8,7 @@
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=14
 #SBATCH --time=00:45:00
+#SBATCH --requeue
 
 set -euo pipefail
 umask 002

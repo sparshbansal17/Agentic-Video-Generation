@@ -576,6 +576,67 @@ class AgenticArchitectureTests(unittest.TestCase):
         self.assertTrue(Path(first[first.index("--t2v_model_path") + 1]).is_absolute())
         self.assertIn("--t5_cpu", first)
 
+    def test_storymem_commands_expose_speed_options(self) -> None:
+        from storymem_agentic.orchestrator import build_storymem_commands
+
+        commands = build_storymem_commands(
+            story_json=Path("relative/out/iterations/001/story.json"),
+            first_shot_story_json=Path("relative/out/iterations/001/story_t2v_first_shot.json"),
+            output_dir=Path("relative/out/iterations/001/generated"),
+            storymem_dir="/tmp/storymem",
+            t2v_model_path=Path("models/t2v"),
+            i2v_model_path=Path("models/i2v"),
+            lora_weight_path=Path("models/lora"),
+            nproc_per_node=8,
+            sample_steps=20,
+            frame_num=41,
+            keyframe_mode="simple",
+        )
+
+        first = commands[0]
+        second = commands[1]
+        self.assertNotIn("--offload_model", first)
+        self.assertNotIn("--offload_model", second)
+        self.assertEqual(first[first.index("--sample_steps") + 1], "20")
+        self.assertEqual(second[second.index("--frame_num") + 1], "41")
+        self.assertEqual(first[first.index("--keyframe_mode") + 1], "simple")
+
+    def test_resume_reuses_completed_iteration_reports(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "resume"
+            result = run_workflow(
+                topic_or_name="moon bedtime lullaby",
+                output_dir=out,
+                mode="iterate",
+                target_duration=10,
+                clip_count=2,
+                max_iterations=1,
+                generate_audio=False,
+                execute_video=False,
+            )
+            self.assertFalse(result["passed"])
+            report_path = out / "iterations" / "001" / "evaluation_report.json"
+            original_report = json.loads(report_path.read_text(encoding="utf-8"))
+            original_report["failure_reasons"] = ["cached_marker"]
+            report_path.write_text(json.dumps(original_report, indent=2) + "\n", encoding="utf-8")
+
+            resumed = run_workflow(
+                topic_or_name="moon bedtime lullaby",
+                output_dir=out,
+                mode="iterate",
+                target_duration=10,
+                clip_count=2,
+                max_iterations=1,
+                generate_audio=False,
+                execute_video=False,
+            )
+
+            self.assertFalse(resumed["passed"])
+            self.assertEqual(
+                json.loads(report_path.read_text(encoding="utf-8"))["failure_reasons"],
+                ["cached_marker"],
+            )
+
     def test_storymem_continuation_command_uses_mi2v_only(self) -> None:
         from storymem_agentic.orchestrator import build_storymem_continuation_command
 

@@ -5,6 +5,7 @@
 #SBATCH --partition=ai
 #SBATCH --qos=preemptible
 #SBATCH --time=00:20:00
+#SBATCH --requeue
 
 set -euo pipefail
 
