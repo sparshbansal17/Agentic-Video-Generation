@@ -197,9 +197,9 @@ def build_storymem_commands(
         str(nproc_per_node),
         "--lora_rank",
         "128",
-        "--keyframe_mode",
-        keyframe_mode,
         ]
+        if keyframe_mode != "hps":
+            command.extend(["--keyframe_mode", keyframe_mode])
         if offload_model:
             command.append("--offload_model")
         if sample_steps is not None:
@@ -266,10 +266,10 @@ def build_storymem_continuation_command(
         str(nproc_per_node),
         "--lora_rank",
         "128",
-        "--keyframe_mode",
-        keyframe_mode,
-        "--mi2v",
     ]
+    if keyframe_mode != "hps":
+        command.extend(["--keyframe_mode", keyframe_mode])
+    command.append("--mi2v")
     if offload_model:
         command.append("--offload_model")
     if sample_steps is not None:
