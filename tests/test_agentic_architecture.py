@@ -250,6 +250,30 @@ class AgenticArchitectureTests(unittest.TestCase):
         self.assertFalse(result["passed"])
         self.assertIn("line_1_starts_before_scene", result["failure_reasons"])
 
+    def test_full_song_timing_failure_triggers_scene_mix_fallback(self):
+        from storymem_agentic.orchestrator import _needs_scene_lyrics_audio_fallback
+
+        self.assertTrue(
+            _needs_scene_lyrics_audio_fallback(
+                {
+                    "passed": False,
+                    "failure_reasons": [
+                        "line_1_missing_words",
+                        "line_2_ends_after_scene",
+                    ],
+                }
+            )
+        )
+        self.assertTrue(
+            _needs_scene_lyrics_audio_fallback(
+                {
+                    "passed": False,
+                    "failure_reasons": ["wer_above_threshold"],
+                }
+            )
+        )
+        self.assertFalse(_needs_scene_lyrics_audio_fallback({"passed": True, "failure_reasons": []}))
+
     def test_cli_plan_accepts_topic_and_writes_reviewer_reports(self):
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp) / "topic_plan"

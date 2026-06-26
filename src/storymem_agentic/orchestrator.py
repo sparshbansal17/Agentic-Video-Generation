@@ -8,6 +8,7 @@ from pathlib import Path
 from string import Template
 from typing import Any
 
+from .alignment import analyze_whisperx_alignment, load_whisperx_words
 from .audio_director import build_audio_plan
 from .agents import CommandAgentBackend
 from .backends import write_backend_manifest
@@ -380,6 +381,24 @@ def _is_whisperx_timing_failure(report: EvaluationReport | None) -> bool:
     )
 
 
+def analyze_whisperx_for_plan(plan: ProductionPlan, whisperx_alignment_path: Path) -> dict[str, Any]:
+    aligned_words = load_whisperx_words(whisperx_alignment_path)
+    return analyze_whisperx_alignment(
+        [segment.text for segment in plan.lyric_segments],
+        [(segment.start_seconds, segment.end_seconds) for segment in plan.lyric_segments],
+        aligned_words,
+    )
+
+
+def _needs_scene_lyrics_audio_fallback(alignment: dict[str, Any] | None) -> bool:
+    if not alignment or alignment.get("passed"):
+        return False
+    return any(
+        str(reason).startswith("line_") or str(reason) == "wer_above_threshold"
+        for reason in alignment.get("failure_reasons", [])
+    )
+
+
 def run_workflow(
     *,
     rhyme_file: str | Path | None = None,
@@ -594,27 +613,32 @@ def run_workflow(
             effective_media_audio_mode = media_audio_mode
             if plan.audio_mode == "voice_bed" and media_audio_mode == "full_song":
                 effective_media_audio_mode = "separate_stems"
-            audio_result = run_audio_postprocess(
-                rhyme_file=latest_paths["iteration_dir"] / "lyrics.txt",
-                story_json=latest_paths["story"],
-                output_dir=latest_paths["generated_dir"],
-                final_video=video_candidate,
-                mode=plan.audio_mode,
-                voice_backend=audio_voice_backend,
-                music_backend=audio_music_backend,
-                media_audio_mode=current_media_audio_mode
-                if plan.audio_mode == "full_song"
-                else effective_media_audio_mode,
-                audio_output_suffix=audio_output_suffix,
-                audio_voice_style=audio_voice_style,
-                ace_step_cmd=ace_step_cmd,
-                vocal_cmd=vocal_cmd,
-                backing_cmd=backing_cmd,
-                musicgen_cmd=musicgen_cmd,
-                ffmpeg_bin=ffmpeg_bin,
-                seed=seed + ((iteration - 1) * 9973),
-                dry_run=False,
+
+            def render_audio_candidate(media_mode: str, *, seed_offset: int = 0) -> dict[str, Any]:
+                return run_audio_postprocess(
+                    rhyme_file=latest_paths["iteration_dir"] / "lyrics.txt",
+                    story_json=latest_paths["story"],
+                    output_dir=latest_paths["generated_dir"],
+                    final_video=video_candidate,
+                    mode=plan.audio_mode,
+                    voice_backend=audio_voice_backend,
+                    music_backend=audio_music_backend,
+                    media_audio_mode=media_mode,
+                    audio_output_suffix=audio_output_suffix,
+                    audio_voice_style=audio_voice_style,
+                    ace_step_cmd=ace_step_cmd,
+                    vocal_cmd=vocal_cmd,
+                    backing_cmd=backing_cmd,
+                    musicgen_cmd=musicgen_cmd,
+                    ffmpeg_bin=ffmpeg_bin,
+                    seed=seed + ((iteration - 1) * 9973) + seed_offset,
+                    dry_run=False,
+                )
+
+            requested_media_audio_mode = (
+                current_media_audio_mode if plan.audio_mode == "full_song" else effective_media_audio_mode
             )
+            audio_result = render_audio_candidate(requested_media_audio_mode)
             if audio_result.get("media_output"):
                 final_candidate = Path(str(audio_result["media_output"]))
             write_json(latest_paths["iteration_dir"] / "audio_postprocess_result.json", audio_result)
@@ -633,6 +657,38 @@ def run_workflow(
                 output_dir=latest_paths["iteration_dir"] / "whisperx",
                 output_file=whisperx_alignment_path,
             )
+
+        if (
+            mode in {"generate", "iterate"}
+            and generate_audio
+            and audio_aligner == "whisperx"
+            and plan.audio_mode == "full_song"
+            and current_media_audio_mode == "full_song"
+            and audio_result is not None
+            and whisperx_alignment_path.exists()
+        ):
+            full_song_alignment = analyze_whisperx_for_plan(plan, whisperx_alignment_path)
+            if _needs_scene_lyrics_audio_fallback(full_song_alignment):
+                fallback_record = {
+                    "reason": "full_song_whisperx_timing_failure",
+                    "full_song_alignment": full_song_alignment,
+                    "previous_audio_postprocess": audio_result,
+                }
+                write_json(latest_paths["iteration_dir"] / "full_song_audio_fallback.json", fallback_record)
+                write_json(latest_paths["iteration_dir"] / "whisperx_full_song_alignment.json", full_song_alignment)
+                current_media_audio_mode = "scene_lyrics_mix"
+                audio_result = render_audio_candidate(current_media_audio_mode, seed_offset=503)
+                if audio_result.get("media_output"):
+                    final_candidate = Path(str(audio_result["media_output"]))
+                audio_result["fallback_from_full_song"] = fallback_record
+                write_json(latest_paths["iteration_dir"] / "audio_postprocess_result.json", audio_result)
+                whisperx_alignment_path.unlink(missing_ok=True)
+                run_whisperx_command(
+                    command_template=whisperx_command,
+                    audio_file=final_candidate,
+                    output_dir=latest_paths["iteration_dir"] / "whisperx_scene_lyrics_mix",
+                    output_file=whisperx_alignment_path,
+                )
         latest_final_candidate = final_candidate
 
         latest_report = evaluate_iteration(
