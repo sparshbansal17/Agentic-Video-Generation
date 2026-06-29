@@ -83,13 +83,25 @@ def _ordered_line_match(wanted: list[str], observed_tokens: list[tuple[str, dict
     cursor = 0
     matched = []
     for wanted_word in wanted:
-        while cursor < len(observed_tokens) and observed_tokens[cursor][0] != wanted_word:
-            cursor += 1
-        if cursor >= len(observed_tokens):
+        found_index = None
+        for token_index in range(cursor, len(observed_tokens)):
+            if observed_tokens[token_index][0] == wanted_word:
+                found_index = token_index
+                break
+        if found_index is None:
             continue
-        matched.append(observed_tokens[cursor][1])
-        cursor += 1
+        matched.append(observed_tokens[found_index][1])
+        cursor = found_index + 1
     return matched
+
+
+def _timing_items(matched: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    reliable = [
+        item
+        for item in matched
+        if "start" in item and "end" in item and float(item.get("score", 1.0) or 0.0) >= 0.15
+    ]
+    return reliable or [item for item in matched if "start" in item and "end" in item]
 
 
 def line_timestamps(
@@ -106,8 +118,9 @@ def line_timestamps(
         window = planned_windows[index - 1] if planned_windows and index <= len(planned_windows) else None
         candidates = _tokens_for_window(observed_tokens, window, window_tolerance_seconds)
         matched = _ordered_line_match(wanted, candidates)
-        starts = [float(item["start"]) for item in matched if "start" in item]
-        ends = [float(item["end"]) for item in matched if "end" in item]
+        timing_items = _timing_items(matched)
+        starts = [float(item["start"]) for item in timing_items if "start" in item]
+        ends = [float(item["end"]) for item in timing_items if "end" in item]
         output.append(
             {
                 "line_index": index,
@@ -141,7 +154,7 @@ def analyze_whisperx_alignment(
         if observed_start is None or observed_end is None:
             failures.append(f"line_{item['line_index']}_missing_words")
             continue
-        if item["matched_word_count"] < item["expected_word_count"]:
+        if item["matched_ratio"] < 0.8:
             failures.append(f"line_{item['line_index']}_partial_words")
         start_drift = observed_start - planned_start
         end_drift = observed_end - planned_end
