@@ -43,7 +43,8 @@ def build_user_prompt(payload: dict[str, Any]) -> str:
         '"continuity_constraints": ["constraint"], "negative_constraints": ["avoidance"]}\n'
         "  ],\n"
         '  "scenes": [\n'
-        '    {"scene_num": 1, "lyric_line": "line 1", "description": "visual subject, scene, and action without literal lyric text", '
+        '    {"scene_num": 1, "lyric_line": "line 1", '
+        '"description": "Opening shot: specific full-frame setting with foreground and background. Specific child-safe subject action. Camera specific movement. Visual style, lighting, color palette, mood, continuity, no text.", '
         '"camera": "shot size, camera angle, lens, composition, and camera movement", '
         '"expected_mood": "calm bedtime mood", "boundary_behavior": "hold", "cut": true}\n'
         "  ],\n"
@@ -64,7 +65,11 @@ def build_user_prompt(payload: dict[str, Any]) -> str:
         "clip a distinct full-frame shot: vary location or staging, action, camera angle, shot size, subject distance, "
         "foreground/background layout, lens, composition, color tone, lighting, and motion. Use cut=true for each "
         "lyric-scene clip unless the user explicitly asks for a single continuous one-shot. Do not repeat the same "
-        "generic medium-shot camera language for all clips. Do not copy literal lyric text into scene descriptions; "
+        "generic medium-shot camera language for all clips. Each scene description must be a concrete paragraph in "
+        "this format: 'Opening shot: [specific setting with foreground/background]. [specific subject] [specific "
+        "action]. Camera [specific movement]. [visual style, lighting, color palette, mood]. [continuity and "
+        "child-safety constraints].' Do not output vague descriptions like 'child looks at moon' or 'star shines'. "
+        "Do not copy literal lyric text into scene descriptions; "
         "describe the visual meaning instead. Put any needed character or setting continuity details directly in the "
         "scene description; do not assume a repeated character-bank prefix will be added later. "
         "Never describe a small framed box, inset image, picture-in-picture, poster, border, title card, or screen-within-screen. "

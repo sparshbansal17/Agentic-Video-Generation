@@ -63,6 +63,36 @@ LIGHTING_CONTROLS = [
     "warm bedside lamp light, edge lighting, low contrast, soft peach and blue colors",
     "dawn-like soft light, side lighting, low contrast, warm gentle colors",
 ]
+SCENE_CAMERA_PLANS = [
+    "Camera slowly dollies from the bedside toward the round window, revealing the night sky in a gentle dreamy move",
+    "Camera cranes upward from rounded rooftops into the sky, following the main magical subject with slow parallax",
+    "Camera orbits slowly around the main character and magical guide, revealing depth in soft clouds and constellations",
+    "Camera slowly pulls back into a wide aerial view, keeping the main subject clear while the world opens below",
+    "Camera tilts down from the sky back through the bedroom window, ending on a peaceful bedtime close-up",
+    "Camera side-tracks at a sleepy walking pace, keeping foreground shapes moving gently past the characters",
+    "Camera pushes in from a wide establishing view to a calm medium close-up on the emotional action",
+    "Camera drifts diagonally downward like a floating feather, keeping all motion slow and soothing",
+]
+SCENE_AESTHETIC_PLANS = [
+    "soft pastel 3D animation, warm lamp glow, floating dust sparkles, calm lullaby mood",
+    "pastel children's-book style, soft moonlight, gentle clouds, calm motion, whimsical bedtime magic",
+    "dreamlike 3D animation, soft focus, cozy blue-and-purple palette, safe and soothing atmosphere",
+    "magical bedtime tone, soft cinematic lighting, pastel colors, smooth parallax movement",
+    "warm moonlight, cozy nursery, soft lullaby ending, slow fade-out, gentle glow",
+    "rounded storybook animation, soft practical light, uncluttered foreground, gentle bedtime palette",
+    "plush toy-like materials, soft edge lighting, low contrast, clean child-safe silhouettes",
+    "watercolor-soft 3D storybook style, delicate highlights, calm blue-gold color harmony",
+]
+BEDTIME_SETTINGS = [
+    "a cozy moonlit nursery with a small child tucked under a soft star-pattern blanket, holding a plush bedtime toy",
+    "a peaceful village of rounded rooftops and glowing windows under a deep blue sky",
+    "a fluffy dream cloud garden with soft constellations, a smiling crescent moon, and layered puffy clouds",
+    "a wide aerial bedtime-sky view above a soft toy-like world with tiny glowing towns, rivers, and forests",
+    "the same cozy nursery seen through the round window as the bedtime journey returns home",
+    "a quiet meadow of oversized felt flowers beside a moonlit path and a tiny bridge",
+    "a warm storybook bedroom corner with a rocking chair, plush toys, and soft curtains moving in the night breeze",
+    "a gentle cloud river with paper-airplane birds gliding slowly between moonlit hills",
+]
 
 PLANNER_DECISION_SCHEMA: dict[str, Any] = {
     "name": "lullaby_planner_decision",
@@ -174,25 +204,110 @@ def _lighting_control(index: int) -> str:
     return LIGHTING_CONTROLS[(index - 1) % len(LIGHTING_CONTROLS)]
 
 
-def _storyboard_action(topic: str, lyric_line: str, index: int, clip_count: int) -> tuple[str, str]:
-    clean_topic = " ".join(topic.split()) or "the lullaby"
-    if index == 1:
-        return (
-            f"a new opening scene introduces {clean_topic} through the meaning of the first lyric line, "
-            "with the main character entering a cozy bedtime world",
-            "wide establishing shot, gentle camera drift, full environment visible",
-        )
+def _scene_camera_plan(index: int) -> str:
+    return SCENE_CAMERA_PLANS[(index - 1) % len(SCENE_CAMERA_PLANS)]
+
+
+def _scene_aesthetic_plan(index: int) -> str:
+    return SCENE_AESTHETIC_PLANS[(index - 1) % len(SCENE_AESTHETIC_PLANS)]
+
+
+def _bedtime_setting(index: int) -> str:
+    return BEDTIME_SETTINGS[(index - 1) % len(BEDTIME_SETTINGS)]
+
+
+def _topic_subject(topic: str) -> str:
+    words = [word.strip(" ,.!?;:\"'()[]{}").lower() for word in topic.split()]
+    meaningful = [
+        word
+        for word in words
+        if word and word not in {"the", "a", "an", "any", "lullaby", "nursery", "rhyme", "song", "prompt"}
+    ]
+    if not meaningful:
+        return "a friendly glowing bedtime guide"
+    if "star" in meaningful or "twinkle" in meaningful:
+        return "the same tiny rounded golden star with a friendly face"
+    if "moon" in meaningful:
+        return "the same smiling crescent moon with a warm pearl glow"
+    if "lamb" in meaningful:
+        return "the same small fluffy lamb with a ribbon-soft collar"
+    if "sheep" in meaningful:
+        return "the same sleepy woolly sheep with rounded toy-like features"
+    if "baby" in meaningful or "hush" in meaningful:
+        return "the same sleepy baby-safe bedtime child and plush companion"
+    return f"a friendly magical guide inspired by {' '.join(meaningful[:4])}"
+
+
+def _line_visual_action(line: str, index: int, clip_count: int) -> str:
+    lower = line.lower()
+    if any(word in lower for word in ["twinkle", "sparkle", "shine", "star"]):
+        return "pulses with soft friendly light, leaving tiny glitter shapes that fade before becoming readable symbols"
+    if any(word in lower for word in ["little", "small", "tiny"]):
+        return "bounces gently like a lantern while sleepy animals peek out with warm curious expressions"
+    if any(word in lower for word in ["wonder", "who", "what", "why", "where"]):
+        return "guides the child through a quiet dream as the child points upward with calm curiosity"
+    if any(word in lower for word in ["diamond", "bright", "light"]):
+        return "briefly becomes a faceted glow, then returns to its cute rounded form and sends one final soft sparkle"
+    if any(word in lower for word in ["above", "high", "sky", "world"]):
+        return "rises higher above the soft world below while clouds drift slowly under the characters"
+    if any(word in lower for word in ["sleep", "dream", "goodnight", "hush", "lullaby"]):
+        return "settles the scene into sleep as blankets, curtains, and night clouds move with barely visible softness"
+    if any(word in lower for word in ["lamb", "sheep"]):
+        return "trots gently beside the child, nuzzling a soft blanket while the scene stays quiet and safe"
     if index == clip_count:
-        return (
-            "a separate closing scene resolves the final lyric line with a calm goodnight image, "
-            "the main character settles peacefully as the world grows quiet",
-            "peaceful final wide shot, slow pullback, soft fade-ready motion",
+        return "returns the bedtime journey to a peaceful closing image, with the characters calm and ready for sleep"
+    return "creates a distinct gentle action that visualizes the lyric meaning through movement, expression, and setting"
+
+
+def _rich_scene_description(topic: str, lyric_line: str, index: int, clip_count: int, visual_style: str) -> str:
+    subject = _topic_subject(topic)
+    setting = _bedtime_setting(index)
+    action = _line_visual_action(lyric_line, index, clip_count)
+    camera = _scene_camera_plan(index)
+    aesthetic = _scene_aesthetic_plan(index)
+    continuity = (
+        f"Keep {subject} visually consistent, expressive, cute, rounded, and full-frame rather than framed inside a box."
+    )
+    safety = "Smooth slow motion, no scary shadows, no clutter, no written words, child-safe magical bedtime atmosphere."
+    if index == clip_count:
+        safety = (
+            "The ending should feel complete and sleepy: slow fade-ready motion, no harsh contrast, no written words, "
+            "consistent character design, soothing bedtime finale."
         )
-    pattern = _shot_pattern(index)
     return (
-        "a distinct storyboard scene visualizes the current lyric line with a new action and changed setting, "
-        "keeping the same soft character design but not repeating the previous composition",
-        f"{pattern}, gentle lullaby motion",
+        f"Opening shot: {setting}. {subject.capitalize()} {action}. {camera}. "
+        f"{aesthetic}. {visual_style}. {continuity} {safety}"
+    )
+
+
+def _scene_description_is_specific(text: str) -> bool:
+    lowered = text.lower()
+    word_count = len(text.split())
+    required_craft = ["opening shot", "camera", "soft"]
+    has_action = any(word in lowered for word in ["moves", "drifts", "floats", "rises", "glows", "smiles", "walks", "pulls", "dollies", "cranes", "orbits", "tilts"])
+    has_setting = any(word in lowered for word in ["nursery", "window", "village", "cloud", "sky", "bedroom", "meadow", "forest", "rooftop", "world"])
+    return word_count >= 45 and all(term in lowered for term in required_craft) and has_action and has_setting
+
+
+def _normalize_scene_description(
+    *,
+    topic: str,
+    lyric_line: str,
+    index: int,
+    clip_count: int,
+    visual_style: str,
+    raw_description: str | None,
+) -> str:
+    description = " ".join(str(raw_description or "").split())
+    if _scene_description_is_specific(description):
+        return description
+    return _rich_scene_description(topic, lyric_line, index, clip_count, visual_style)
+
+
+def _storyboard_action(topic: str, lyric_line: str, index: int, clip_count: int, visual_style: str) -> tuple[str, str]:
+    return (
+        _rich_scene_description(topic, lyric_line, index, clip_count, visual_style),
+        _scene_camera_plan(index),
     )
 
 
@@ -259,7 +374,15 @@ def build_production_plan(rhyme: NurseryRhymeInput, *, target_fps: int = 24) -> 
 
     scenes = []
     for index, segment in enumerate(segments, start=1):
-        action, camera = _storyboard_action(rhyme.topic_or_name, segment.text, index, clip_count)
+        action, camera = _storyboard_action(rhyme.topic_or_name, segment.text, index, clip_count, rhyme.visual_style)
+        action = _normalize_scene_description(
+            topic=rhyme.topic_or_name,
+            lyric_line=segment.text,
+            index=index,
+            clip_count=clip_count,
+            visual_style=rhyme.visual_style,
+            raw_description=action,
+        )
         prompt = _storyboard_prompt(
             index=index,
             clip_count=clip_count,
@@ -336,6 +459,10 @@ def _planner_prompt() -> str:
         "camera angle, subject distance, foreground/background layout, and motion. Use hard edited cuts between "
         "lyric-scene clips unless the user explicitly asks for a single continuous one-shot. Do not repeat generic "
         "camera language such as the same medium shot for all clips. "
+        "Each scene description must be a concrete paragraph in this format: 'Opening shot: [specific setting with "
+        "foreground/background]. [specific subject] [specific action]. Camera [specific movement]. [visual style, "
+        "lighting, color palette, mood]. [continuity and child-safety constraints].' The description must be rich "
+        "enough to stand alone as a video-generation scene, similar to a director's storyboard card. "
         "Put any character or setting continuity details needed for that shot directly into that scene description; "
         "do not rely on a repeated character-bank prefix being added later. "
         "Every visual scene must prohibit generated text, letters, scary imagery, clutter, unsafe content, dialogue, "
@@ -409,8 +536,16 @@ def production_plan_from_planner_decision(
     scenes = []
     for index, segment in enumerate(segments, start=1):
         raw = raw_scenes[index - 1] if index - 1 < len(raw_scenes) and isinstance(raw_scenes[index - 1], dict) else {}
-        description = str(raw.get("description") or raw.get("action") or "gentle bedtime scene matching the lullaby line meaning")
-        camera = str(raw.get("camera") or raw.get("motion") or "slow gentle bedtime camera movement")
+        raw_description = str(raw.get("description") or raw.get("action") or "")
+        description = _normalize_scene_description(
+            topic=rhyme.topic_or_name,
+            lyric_line=segment.text,
+            index=index,
+            clip_count=clip_count,
+            visual_style=rhyme.visual_style,
+            raw_description=raw_description,
+        )
+        camera = str(raw.get("camera") or raw.get("motion") or _scene_camera_plan(index))
         expected_mood = str(raw.get("expected_mood") or "calm child-safe bedtime wonder")
         boundary_behavior = str(raw.get("boundary_behavior") or ("fade" if index == clip_count else "hold"))
         prompt = _storyboard_prompt(
