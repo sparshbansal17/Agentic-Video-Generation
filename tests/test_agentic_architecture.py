@@ -280,6 +280,32 @@ class AgenticArchitectureTests(unittest.TestCase):
         self.assertTrue(all("hard cut transition" in scene.video_prompt for scene in plan.scenes))
         self.assertTrue(all("No dialogue. No background music." in scene.video_prompt for scene in plan.scenes))
 
+    def test_fallback_scene_cards_follow_format_without_copying_example_scenes(self):
+        plan = build_production_plan(
+            NurseryRhymeInput(
+                topic_or_name="Twinkle Twinkle Little Star",
+                lyrics=(
+                    "Twinkle, twinkle, little star\n"
+                    "Little star above\n"
+                    "How I wonder what you are\n"
+                    "Up above the world so high\n"
+                    "Like a diamond in the sky\n"
+                ),
+                clip_count=5,
+                target_duration_seconds=25,
+            )
+        )
+
+        descriptions = "\n".join(scene.description for scene in plan.scenes)
+
+        self.assertTrue(all(scene.description.startswith("Opening shot:") for scene in plan.scenes))
+        self.assertTrue(all("Camera" in scene.description for scene in plan.scenes))
+        self.assertIn("tiny warm star lights", descriptions)
+        self.assertNotIn("a cozy moonlit nursery with a small child tucked under a soft star-pattern blanket", descriptions)
+        self.assertNotIn("a peaceful village of rounded rooftops and glowing windows", descriptions)
+        self.assertNotIn("a fluffy dream cloud garden with soft constellations", descriptions)
+        self.assertNotIn("a wide aerial view of Earth far below", descriptions)
+
     def test_character_db_profiles_are_preserved_without_prompt_injection(self):
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "characters.json"

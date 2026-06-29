@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -64,34 +65,34 @@ LIGHTING_CONTROLS = [
     "dawn-like soft light, side lighting, low contrast, warm gentle colors",
 ]
 SCENE_CAMERA_PLANS = [
-    "Camera slowly dollies from the bedside toward the round window, revealing the night sky in a gentle dreamy move",
-    "Camera cranes upward from rounded rooftops into the sky, following the main magical subject with slow parallax",
-    "Camera orbits slowly around the main character and magical guide, revealing depth in soft clouds and constellations",
-    "Camera slowly pulls back into a wide aerial view, keeping the main subject clear while the world opens below",
-    "Camera tilts down from the sky back through the bedroom window, ending on a peaceful bedtime close-up",
-    "Camera side-tracks at a sleepy walking pace, keeping foreground shapes moving gently past the characters",
-    "Camera pushes in from a wide establishing view to a calm medium close-up on the emotional action",
-    "Camera drifts diagonally downward like a floating feather, keeping all motion slow and soothing",
+    "Camera makes a slow diagonal push from a soft foreground object toward the main subject, revealing the scene depth",
+    "Camera glides sideways at a sleepy walking pace, letting foreground shapes pass gently across the frame",
+    "Camera rises in a shallow crane move, opening from character-scale detail into the larger bedtime setting",
+    "Camera eases into a slow half-orbit, keeping the main subject centered while the background changes clearly",
+    "Camera pulls back from a close detail into a wide calm tableau, preserving smooth parallax and stable focus",
+    "Camera tilts down from a soft overhead detail to the main action, ending on a peaceful balanced composition",
+    "Camera tracks forward low and slow, following the subject's gentle motion through the environment",
+    "Camera drifts backward like a floating lullaby note, giving the final image space to breathe",
 ]
 SCENE_AESTHETIC_PLANS = [
-    "soft pastel 3D animation, warm lamp glow, floating dust sparkles, calm lullaby mood",
-    "pastel children's-book style, soft moonlight, gentle clouds, calm motion, whimsical bedtime magic",
-    "dreamlike 3D animation, soft focus, cozy blue-and-purple palette, safe and soothing atmosphere",
-    "magical bedtime tone, soft cinematic lighting, pastel colors, smooth parallax movement",
-    "warm moonlight, cozy nursery, soft lullaby ending, slow fade-out, gentle glow",
+    "soft pastel 3D animation, warm practical glow, rounded forms, calm lullaby mood",
+    "pastel children's-book style, soft moonlight, uncluttered shapes, calm motion, whimsical bedtime magic",
+    "dreamlike 3D animation, soft focus, gentle blue-violet and honey-gold palette, safe soothing atmosphere",
+    "magical bedtime tone, soft cinematic lighting, low contrast, pastel colors, smooth parallax movement",
+    "warm moonlight mixed with a small practical light, soft lullaby ending, slow fade-ready glow",
     "rounded storybook animation, soft practical light, uncluttered foreground, gentle bedtime palette",
     "plush toy-like materials, soft edge lighting, low contrast, clean child-safe silhouettes",
     "watercolor-soft 3D storybook style, delicate highlights, calm blue-gold color harmony",
 ]
-BEDTIME_SETTINGS = [
-    "a cozy moonlit nursery with a small child tucked under a soft star-pattern blanket, holding a plush bedtime toy",
-    "a peaceful village of rounded rooftops and glowing windows under a deep blue sky",
-    "a fluffy dream cloud garden with soft constellations, a smiling crescent moon, and layered puffy clouds",
-    "a wide aerial bedtime-sky view above a soft toy-like world with tiny glowing towns, rivers, and forests",
-    "the same cozy nursery seen through the round window as the bedtime journey returns home",
-    "a quiet meadow of oversized felt flowers beside a moonlit path and a tiny bridge",
-    "a warm storybook bedroom corner with a rocking chair, plush toys, and soft curtains moving in the night breeze",
-    "a gentle cloud river with paper-airplane birds gliding slowly between moonlit hills",
+SETTING_FRAMES = [
+    "a bedtime room transformed by the lullaby theme, with a soft foreground prop, a clear main subject area, and a layered background",
+    "a small handmade storybook landscape inspired by the input prompt, with rounded paths, toy-like props, and warm lights in the distance",
+    "a floating dream setting shaped by the current lyric meaning, with soft foreground shapes and a calm open background",
+    "a wide magical miniature world built from the prompt's main imagery, with tiny safe details visible below the characters",
+    "a quiet closing space that returns to the lullaby's core image, with the final subject clearly visible and the background simplified",
+    "a gentle outdoor bedtime scene inspired by the topic, with slow-moving natural elements and uncluttered child-safe staging",
+    "a cozy interior nook built around the rhyme's main object, with plush textures, soft curtains, and a readable foreground-to-background path",
+    "a slow-moving dream corridor of soft shapes from the lyric, arranged for a clear edited video shot rather than a one-shot scene",
 ]
 
 PLANNER_DECISION_SCHEMA: dict[str, Any] = {
@@ -212,17 +213,22 @@ def _scene_aesthetic_plan(index: int) -> str:
     return SCENE_AESTHETIC_PLANS[(index - 1) % len(SCENE_AESTHETIC_PLANS)]
 
 
-def _bedtime_setting(index: int) -> str:
-    return BEDTIME_SETTINGS[(index - 1) % len(BEDTIME_SETTINGS)]
+def _setting_frame(index: int) -> str:
+    return SETTING_FRAMES[(index - 1) % len(SETTING_FRAMES)]
+
+
+def _topic_words(topic: str) -> list[str]:
+    stopwords = {"the", "a", "an", "any", "lullaby", "nursery", "rhyme", "song", "prompt", "and", "of", "for", "to"}
+    words = [word.strip(" ,.!?;:\"'()[]{}").lower() for word in topic.split()]
+    return [word for word in words if word and word not in stopwords]
+
+
+def _text_words(text: str) -> set[str]:
+    return set(re.findall(r"[a-z0-9']+", text.lower()))
 
 
 def _topic_subject(topic: str) -> str:
-    words = [word.strip(" ,.!?;:\"'()[]{}").lower() for word in topic.split()]
-    meaningful = [
-        word
-        for word in words
-        if word and word not in {"the", "a", "an", "any", "lullaby", "nursery", "rhyme", "song", "prompt"}
-    ]
+    meaningful = _topic_words(topic)
     if not meaningful:
         return "a friendly glowing bedtime guide"
     if "star" in meaningful or "twinkle" in meaningful:
@@ -238,22 +244,55 @@ def _topic_subject(topic: str) -> str:
     return f"a friendly magical guide inspired by {' '.join(meaningful[:4])}"
 
 
-def _line_visual_action(line: str, index: int, clip_count: int) -> str:
-    lower = line.lower()
-    if any(word in lower for word in ["twinkle", "sparkle", "shine", "star"]):
-        return "pulses with soft friendly light, leaving tiny glitter shapes that fade before becoming readable symbols"
-    if any(word in lower for word in ["little", "small", "tiny"]):
-        return "bounces gently like a lantern while sleepy animals peek out with warm curious expressions"
-    if any(word in lower for word in ["wonder", "who", "what", "why", "where"]):
-        return "guides the child through a quiet dream as the child points upward with calm curiosity"
-    if any(word in lower for word in ["diamond", "bright", "light"]):
-        return "briefly becomes a faceted glow, then returns to its cute rounded form and sends one final soft sparkle"
-    if any(word in lower for word in ["above", "high", "sky", "world"]):
-        return "rises higher above the soft world below while clouds drift slowly under the characters"
-    if any(word in lower for word in ["sleep", "dream", "goodnight", "hush", "lullaby"]):
-        return "settles the scene into sleep as blankets, curtains, and night clouds move with barely visible softness"
-    if any(word in lower for word in ["lamb", "sheep"]):
+def _setting_details(topic: str, lyric_line: str, index: int, clip_count: int) -> str:
+    topic_terms = _topic_words(topic)
+    lower_line = lyric_line.lower()
+    frame = _setting_frame(index)
+    motif = "the lullaby's main image"
+    if "star" in topic_terms or "twinkle" in topic_terms or "star" in lower_line:
+        motif = "tiny warm star lights, hanging mobiles, telescope-shaped toys, and soft celestial patterns"
+    elif "moon" in topic_terms or "moon" in lower_line:
+        motif = "pearl moon shapes, sleepy silver-blue cushions, and curved crescent decorations"
+    elif "lamb" in topic_terms or "sheep" in topic_terms or "lamb" in lower_line or "sheep" in lower_line:
+        motif = "woolly meadow textures, a little school path, rounded fences, and soft cream-colored flowers"
+    elif "rain" in topic_terms or "rain" in lower_line:
+        motif = "gentle raindrop reflections, umbrella-like leaves, and warm window light"
+    elif "boat" in topic_terms or "row" in topic_terms or "stream" in lower_line:
+        motif = "paper boats, satin water ripples, and rounded shore shapes"
+    elif topic_terms:
+        motif = f"soft child-safe props inspired by {' '.join(topic_terms[:4])}"
+    progression = "opening introduction"
+    if index == clip_count:
+        progression = "sleepy resolution"
+    elif index > 1:
+        progression = f"story beat {index} with a new location and staging"
+    return f"{frame}, using {motif}; this is the {progression}"
+
+
+def _line_visual_action(topic: str, line: str, index: int, clip_count: int) -> str:
+    words = _text_words(line)
+    topic_words = set(_topic_words(topic))
+    combined = words | topic_words
+    if {"lamb", "sheep"} & combined:
+        if {"follow", "went", "go", "sure", "everywhere"} & words:
+            return "follows the child along a rounded storybook path, matching the gentle rhythm without rushing"
+        if {"white", "snow", "fleece"} & words:
+            return "turns softly so its cream-colored wool catches the warm moonlit glow like plush fabric"
         return "trots gently beside the child, nuzzling a soft blanket while the scene stays quiet and safe"
+    if {"wonder", "who", "what", "why", "where"} & words:
+        return "guides the child through a quiet dream as the child points upward with calm curiosity"
+    if {"diamond", "bright", "light"} & words:
+        return "briefly becomes a faceted glow, then returns to its cute rounded form and sends one final soft sparkle"
+    if {"above", "high", "sky", "world"} & words:
+        return "rises higher above the soft world below while clouds drift slowly under the characters"
+    if {"twinkle", "sparkle", "shine", "star"} & words:
+        return "pulses with soft friendly light, leaving tiny glitter shapes that fade before becoming readable symbols"
+    if {"little", "small", "tiny"} & words:
+        return "bounces gently like a lantern while sleepy animals peek out with warm curious expressions"
+    if {"sleep", "dream", "goodnight", "hush", "lullaby"} & words:
+        return "settles the scene into sleep as blankets, curtains, and night clouds move with barely visible softness"
+    if {"twinkle", "sparkle", "shine", "star"} & topic_words:
+        return "moves through the shot as a warm guiding light, changing the scene through gentle illumination"
     if index == clip_count:
         return "returns the bedtime journey to a peaceful closing image, with the characters calm and ready for sleep"
     return "creates a distinct gentle action that visualizes the lyric meaning through movement, expression, and setting"
@@ -261,8 +300,8 @@ def _line_visual_action(line: str, index: int, clip_count: int) -> str:
 
 def _rich_scene_description(topic: str, lyric_line: str, index: int, clip_count: int, visual_style: str) -> str:
     subject = _topic_subject(topic)
-    setting = _bedtime_setting(index)
-    action = _line_visual_action(lyric_line, index, clip_count)
+    setting = _setting_details(topic, lyric_line, index, clip_count)
+    action = _line_visual_action(topic, lyric_line, index, clip_count)
     camera = _scene_camera_plan(index)
     aesthetic = _scene_aesthetic_plan(index)
     continuity = (
