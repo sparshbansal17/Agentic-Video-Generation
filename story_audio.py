@@ -312,8 +312,22 @@ def _mix_stems(ffmpeg: str, vocals: Path, backing: Path, output: Path, duration:
     ], check=True)
 
 
-def _prepare_scene_vocal(ffmpeg: str, source: Path, output: Path, scene_duration: float) -> None:
-    trim_duration = max(scene_duration - 0.15, 0.1)
+def _estimated_line_vocal_duration(line: str, scene_duration: float) -> float:
+    words = re.findall(r"[A-Za-z0-9']+", line)
+    # Short lines otherwise encourage ACE-Step to repeat words to fill the clip.
+    estimated = 0.55 * max(len(words), 1) + 0.65
+    return max(1.8, min(scene_duration - 0.35, estimated))
+
+
+def _prepare_scene_vocal(
+    ffmpeg: str,
+    source: Path,
+    output: Path,
+    scene_duration: float,
+    *,
+    active_duration: float | None = None,
+) -> None:
+    trim_duration = max(min(active_duration or scene_duration - 0.15, scene_duration - 0.15), 0.1)
     fade_start = max(trim_duration - 0.25, 0)
     audio_filter = (
         "aresample=48000,"
@@ -452,14 +466,16 @@ def _generate_scene_lyrics_mix(
             "a cappella sung nursery-rhyme vocal only, no instrumental backing, no intro, "
             "the first word starts immediately at 0.0 seconds, clear toddler singalong pronunciation, "
             "gentle adult lead vocal with soft childlike brightness, child-friendly Cocomelon style, "
+            "sing the line once, stop after the final word, do not repeat any words, "
             f"sing exactly this one lyric line and nothing else: {line}"
         )
+        vocal_duration = _estimated_line_vocal_duration(line, scene_duration)
         line_prompt_path = _write_audio_prompt(
             scene_work_dir / f"line_{index:02d}_prompt.json",
             line_prompt,
             story,
             config,
-            scene_duration,
+            vocal_duration,
             line,
         )
         raw_vocal = scene_work_dir / f"line_{index:02d}_raw.wav"
@@ -472,13 +488,13 @@ def _generate_scene_lyrics_mix(
                     lyrics_file=str(line_lyrics_path),
                     prompt_file=str(line_prompt_path),
                     output_file=str(raw_vocal),
-                    duration=f"{scene_duration:.3f}",
+                    duration=f"{vocal_duration:.3f}",
                     seed=str(config.seed + index),
                     mode="vocals",
                 ),
                 f"scene {index} vocal generation",
             )
-        _prepare_scene_vocal(ffmpeg, raw_vocal, prepared_vocal, scene_duration)
+        _prepare_scene_vocal(ffmpeg, raw_vocal, prepared_vocal, scene_duration, active_duration=vocal_duration)
         prepared_vocals.append(prepared_vocal)
 
     _mix_scene_lyrics(
