@@ -177,10 +177,17 @@ def _normalize_model_report(reviewer: str, response: dict[str, Any]) -> Reviewer
         if key in response and key not in evidence:
             evidence[key] = response[key]
     failures = [str(item) for item in response.get("failure_reasons", [])]
+    raw_scores = response.get("scores") or {}
+    if isinstance(raw_scores, (int, float)):
+        scores = {"overall": float(raw_scores)}
+    elif isinstance(raw_scores, dict):
+        scores = {str(key): float(value) for key, value in raw_scores.items() if isinstance(value, (int, float))}
+    else:
+        scores = {}
     return ReviewerReport(
         reviewer=reviewer,
         passed=bool(response.get("passed", False)),
-        scores={str(key): float(value) for key, value in dict(response.get("scores") or {}).items() if isinstance(value, (int, float))},
+        scores=scores,
         failure_reasons=failures,
         evidence=evidence,
     )

@@ -11,6 +11,7 @@ from storymem_agentic.feedback import apply_revision_plan, build_revision_plan
 from storymem_agentic.media_evaluator import evaluate_iteration
 from storymem_agentic.planner import PromptPlannerAgent, build_production_plan
 from storymem_agentic.orchestrator import run_workflow
+from storymem_agentic.review_agents import _normalize_model_report
 from storymem_agentic.schemas import EvaluationReport, NurseryRhymeInput, ReviewerReport, RevisionPlan
 from storymem_agentic.story_writer import story_from_plan
 
@@ -305,6 +306,54 @@ class AgenticArchitectureTests(unittest.TestCase):
         self.assertNotIn("a peaceful village of rounded rooftops and glowing windows", descriptions)
         self.assertNotIn("a fluffy dream cloud garden with soft constellations", descriptions)
         self.assertNotIn("a wide aerial view of Earth far below", descriptions)
+
+    def test_command_planner_formatted_but_generic_scene_is_expanded(self):
+        backend = MockAgentBackend(
+            responses={
+                "planner": {
+                    "lyrics": ["Twinkle, twinkle, little star", "How I wonder what you are"],
+                    "clip_count": 2,
+                    "target_duration_seconds": 10,
+                    "characters": [{"label": "star", "description": "same friendly star"}],
+                    "scenes": [
+                        {
+                            "description": (
+                                "Opening shot: a wide shot of the night sky with a bright star shining. "
+                                "The child is looking up at the star with wonder. Camera moves slightly to the right. "
+                                "Visual style: bright, warm, and inviting. Lighting: soft, warm, and gentle. "
+                                "Color palette: soft pinks, blues, and purples. Mood: calm and peaceful. "
+                                "Continuity: the star must be visible in each shot. No text or dialogue."
+                            ),
+                            "camera": "wide shot, camera angle: slightly right",
+                        },
+                        {
+                            "description": "child wonders at star",
+                            "camera": "medium shot",
+                        },
+                    ],
+                    "music_prompt": "soft lullaby",
+                }
+            }
+        )
+
+        plan = PromptPlannerAgent(backend).plan(NurseryRhymeInput(topic_or_name="Twinkle Twinkle Little Star"))
+
+        self.assertIn("tiny warm star lights", plan.scenes[0].description)
+        self.assertNotIn("wide shot of the night sky", plan.scenes[0].description)
+
+    def test_model_review_normalizer_accepts_scalar_scores(self):
+        report = _normalize_model_report(
+            "VisualSafetyReviewAgent",
+            {
+                "passed": True,
+                "scores": 1.0,
+                "failure_reasons": [],
+                "evidence": {"sampled_frames_checked": True},
+            },
+        )
+
+        self.assertTrue(report.passed)
+        self.assertEqual(report.scores["overall"], 1.0)
 
     def test_character_db_profiles_are_preserved_without_prompt_injection(self):
         with tempfile.TemporaryDirectory() as tmp:

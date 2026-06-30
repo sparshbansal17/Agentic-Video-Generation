@@ -325,7 +325,38 @@ def _scene_description_is_specific(text: str) -> bool:
     required_craft = ["opening shot", "camera", "soft"]
     has_action = any(word in lowered for word in ["moves", "drifts", "floats", "rises", "glows", "smiles", "walks", "pulls", "dollies", "cranes", "orbits", "tilts"])
     has_setting = any(word in lowered for word in ["nursery", "window", "village", "cloud", "sky", "bedroom", "meadow", "forest", "rooftop", "world"])
-    return word_count >= 45 and all(term in lowered for term in required_craft) and has_action and has_setting
+    has_spatial_detail = any(
+        term in lowered
+        for term in [
+            "foreground",
+            "midground",
+            "background",
+            "layered",
+            "prop",
+            "window",
+            "path",
+            "room",
+            "landscape",
+            "setting",
+        ]
+    )
+    too_generic = any(
+        phrase in lowered
+        for phrase in [
+            "wide shot of the night sky",
+            "child is looking up",
+            "camera moves slightly",
+            "visual style: bright",
+        ]
+    )
+    return (
+        word_count >= 60
+        and all(term in lowered for term in required_craft)
+        and has_action
+        and has_setting
+        and has_spatial_detail
+        and not too_generic
+    )
 
 
 def _normalize_scene_description(
