@@ -392,40 +392,24 @@ def _storyboard_prompt(
 ) -> str:
     start = (index - 1) * STORYMEM_CLIP_SECONDS
     end = index * STORYMEM_CLIP_SECONDS
-    subject = (
-        "same toddler-safe lullaby characters implied by this scene, rounded friendly faces, soft expressive eyes, "
-        "gentle child-safe proportions, consistent appearance and palette across clips"
-    )
-    scene = (
-        f"{description}; full-frame environment with clear foreground, midground, and background; "
-        "changed staging from the previous clip"
-    )
-    motion = (
-        f"{camera}; visible gentle subject motion, subtle environmental motion, smooth stable timing; "
-        "no frozen pose, no static tableau"
-    )
-    aesthetic = (
-        f"{_lighting_control(index)}, night time bedtime atmosphere, {_shot_pattern(index)}, "
-        f"{_composition(index)}, {_lens(index)}"
-    )
-    storyboard = (
-        f"Shot {index} [{start:.1f}-{end:.1f}s]: hard cut transition into this clip; "
-        f"{description}; {camera}; calm child-friendly emotional performance."
-    )
+    text_guard = "no generated text, letters, captions, or readable words"
+    scene_text = description
+    if scene_text.startswith("Opening shot:"):
+        scene_text = scene_text[len("Opening shot:"):].strip()
+    scene_text = " ".join(scene_text.split())
+    scene_text = scene_text.replace(" Camera ", ". Camera ")
+    if len(scene_text) > 220:
+        scene_text = scene_text[:220].rsplit(" ", 1)[0].rstrip(" ,;") + "."
+    aesthetic = _shot_pattern(index)
+    style = visual_style
+    if len(style) > 90:
+        style = style[:90].rsplit(" ", 1)[0].rstrip(" ,;")
     return (
-        "Wan scene-clip prompt using the Advanced Formula. "
-        f"Overall description: calm toddler lullaby video, edited storyboard clip {index} of {clip_count}, "
-        "consistent characters and style across clips, but this clip has its own composition and action. "
-        f"Subject: {subject}. "
-        f"Scene: {scene}. "
-        f"Motion: {motion}. "
-        f"Aesthetic Control: {aesthetic}. "
-        f"Stylization: {visual_style}, bright rounded bedtime storybook animation, soft textures, clean silhouettes. "
-        f"Storyboard script: {storyboard} "
-        "Use the entire image for the scene; no picture-in-picture, no framed inset, no small box, "
-        "no border, no poster, no screen-within-screen composition. "
-        "No dialogue. No background music. No subtitles in the image. "
-        f"{no_text_constraint} No generated text, no letters, no scary elements, clear toddler-safe composition."
+        f"Scene {index} of {clip_count}, [{start:.1f}-{end:.1f}s], toddler-safe lullaby animation: "
+        f"{scene_text} {camera}. "
+        f"{style}; {aesthetic}; soft bedtime mood, rounded shapes, gentle motion, full-frame composition. "
+        "Use StoryMem keyframe memory for character/style consistency; this prompt controls the new scene layout. "
+        f"No dialogue or background music, {text_guard}, no picture-in-picture, no inset frame, no scary elements."
     )
 
 
