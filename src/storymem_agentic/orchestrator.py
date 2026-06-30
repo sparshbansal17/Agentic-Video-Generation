@@ -399,6 +399,16 @@ def _needs_scene_lyrics_audio_fallback(alignment: dict[str, Any] | None) -> bool
     )
 
 
+def _alignment_rank(alignment: dict[str, Any] | None) -> tuple[int, float, int]:
+    if not alignment:
+        return (1, 1.0, 999)
+    return (
+        0 if alignment.get("passed") else 1,
+        float(alignment.get("word_error_rate", 1.0) or 1.0),
+        len(alignment.get("failure_reasons", []) or []),
+    )
+
+
 def run_workflow(
     *,
     rhyme_file: str | Path | None = None,
@@ -644,6 +654,15 @@ def run_workflow(
                     dry_run=False,
                 )
 
+            def run_audio_alignment(candidate: Path, label: str) -> Path | None:
+                whisperx_alignment_path.unlink(missing_ok=True)
+                return run_whisperx_command(
+                    command_template=whisperx_command,
+                    audio_file=candidate,
+                    output_dir=latest_paths["iteration_dir"] / label,
+                    output_file=whisperx_alignment_path,
+                )
+
             requested_media_audio_mode = (
                 current_media_audio_mode if plan.audio_mode == "full_song" else effective_media_audio_mode
             )
@@ -660,12 +679,7 @@ def run_workflow(
             and final_candidate.exists()
             and not whisperx_alignment_path.exists()
         ):
-            run_whisperx_command(
-                command_template=whisperx_command,
-                audio_file=final_candidate,
-                output_dir=latest_paths["iteration_dir"] / "whisperx",
-                output_file=whisperx_alignment_path,
-            )
+            run_audio_alignment(final_candidate, "whisperx")
 
         if (
             mode in {"generate", "iterate"}
@@ -691,13 +705,72 @@ def run_workflow(
                     final_candidate = Path(str(audio_result["media_output"]))
                 audio_result["fallback_from_full_song"] = fallback_record
                 write_json(latest_paths["iteration_dir"] / "audio_postprocess_result.json", audio_result)
-                whisperx_alignment_path.unlink(missing_ok=True)
-                run_whisperx_command(
-                    command_template=whisperx_command,
-                    audio_file=final_candidate,
-                    output_dir=latest_paths["iteration_dir"] / "whisperx_scene_lyrics_mix",
-                    output_file=whisperx_alignment_path,
-                )
+                run_audio_alignment(final_candidate, "whisperx_scene_lyrics_mix")
+
+        if (
+            mode in {"generate", "iterate"}
+            and generate_audio
+            and audio_aligner == "whisperx"
+            and current_media_audio_mode == "scene_lyrics_mix"
+            and audio_result is not None
+            and final_candidate.exists()
+            and whisperx_alignment_path.exists()
+        ):
+            best_alignment = analyze_whisperx_for_plan(plan, whisperx_alignment_path)
+            best_rank = _alignment_rank(best_alignment)
+            attempts_dir = latest_paths["iteration_dir"] / "audio_retry_attempts"
+            attempts_dir.mkdir(parents=True, exist_ok=True)
+            best_media = attempts_dir / "attempt_00.mp4"
+            best_json = attempts_dir / "attempt_00_whisperx_alignment.json"
+            shutil.copy2(final_candidate, best_media)
+            shutil.copy2(whisperx_alignment_path, best_json)
+            retry_records = [
+                {
+                    "attempt": 0,
+                    "seed_offset": 0,
+                    "alignment": best_alignment,
+                    "media_output": str(best_media),
+                }
+            ]
+            if _needs_scene_lyrics_audio_fallback(best_alignment):
+                for attempt, retry_seed_offset in enumerate([1601, 3203, 4801, 6407], start=1):
+                    shutil.rmtree(latest_paths["generated_dir"] / "audio", ignore_errors=True)
+                    retry_audio_result = render_audio_candidate("scene_lyrics_mix", seed_offset=retry_seed_offset)
+                    if retry_audio_result.get("media_output"):
+                        final_candidate = Path(str(retry_audio_result["media_output"]))
+                    run_audio_alignment(final_candidate, f"whisperx_scene_lyrics_mix_retry_{attempt:02d}")
+                    if not whisperx_alignment_path.exists():
+                        continue
+                    retry_alignment = analyze_whisperx_for_plan(plan, whisperx_alignment_path)
+                    media_copy = attempts_dir / f"attempt_{attempt:02d}.mp4"
+                    json_copy = attempts_dir / f"attempt_{attempt:02d}_whisperx_alignment.json"
+                    shutil.copy2(final_candidate, media_copy)
+                    shutil.copy2(whisperx_alignment_path, json_copy)
+                    retry_records.append(
+                        {
+                            "attempt": attempt,
+                            "seed_offset": retry_seed_offset,
+                            "alignment": retry_alignment,
+                            "media_output": str(media_copy),
+                        }
+                    )
+                    retry_rank = _alignment_rank(retry_alignment)
+                    if retry_rank < best_rank:
+                        best_rank = retry_rank
+                        best_alignment = retry_alignment
+                        best_media = media_copy
+                        best_json = json_copy
+                        audio_result = retry_audio_result
+                    if retry_alignment.get("passed"):
+                        break
+                if best_media.exists():
+                    shutil.copy2(best_media, final_candidate)
+                if best_json.exists():
+                    shutil.copy2(best_json, whisperx_alignment_path)
+                audio_result["scene_lyrics_retry_attempts"] = retry_records
+                audio_result["selected_scene_lyrics_alignment"] = best_alignment
+                audio_result["selected_scene_lyrics_media"] = str(best_media)
+                write_json(latest_paths["iteration_dir"] / "audio_postprocess_result.json", audio_result)
         latest_final_candidate = final_candidate
 
         latest_report = evaluate_iteration(
