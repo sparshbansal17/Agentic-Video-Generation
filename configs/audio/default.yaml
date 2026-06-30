@@ -3,6 +3,7 @@
 voice_backend: f5_tts
 music_backend: musicgen
 aligner_backend: whisperx
+media_audio_mode: hybrid_voice_bed
 
 mix:
   sample_rate: 48000
@@ -21,12 +22,17 @@ backends:
   cosyvoice:
     kind: voice
     command: >-
-      cosyvoice-infer --text '${text}' --style '${voice_style}'
-      --output '${output_file}'
+      cosyvoice-infer --text '${text}' --prompt-audio '${ref_audio}'
+      --prompt-text '${ref_text}' --style '${voice_style}' --output '${output_file}'
   musicgen:
     kind: music
     command: >-
       musicgen-generate --prompt '${music_prompt}'
+      --duration ${duration} --output '${output_file}'
+  stable_audio:
+    kind: music
+    command: >-
+      stable-audio-generate --prompt '${music_prompt}'
       --duration ${duration} --output '${output_file}'
   ace_step_full_song:
     kind: song

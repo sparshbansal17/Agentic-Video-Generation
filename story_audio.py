@@ -42,6 +42,9 @@ class AudioConfig:
     vocal_cmd: str | None = None
     backing_cmd: str | None = None
     musicgen_cmd: str | None = None
+    song_cmd: str | None = None
+    voice_ref_audio: str | None = None
+    voice_ref_text: str | None = None
     ffmpeg_bin: str | None = None
     seed: int = 0
 
@@ -228,6 +231,68 @@ def _run_template(template: str | None, values: dict[str, str], label: str) -> N
         )
     cmd = _render_command(template, values)
     subprocess.run(cmd, check=True)
+
+
+def _require_template(template: str | None, label: str) -> str:
+    if not template:
+        raise RuntimeError(
+            f"Missing {label} command template. Provide the matching CLI option or environment variable."
+        )
+    return template
+
+
+def _requires_voice_reference(config: AudioConfig) -> bool:
+    return config.vocal_backend in {"f5_tts", "cosyvoice"}
+
+
+def _validate_voice_reference(config: AudioConfig) -> None:
+    if not _requires_voice_reference(config):
+        return
+    if not config.voice_ref_audio:
+        raise RuntimeError(
+            f"{config.vocal_backend} requires --voice-ref-audio or VOICE_REF_AUDIO for exact lyric voice generation."
+        )
+    if not Path(config.voice_ref_audio).exists():
+        raise RuntimeError(f"voice reference audio does not exist: {config.voice_ref_audio}")
+    if not (config.voice_ref_text or "").strip():
+        raise RuntimeError(
+            f"{config.vocal_backend} requires --voice-ref-text or VOICE_REF_TEXT matching the reference audio."
+        )
+
+
+def _vocal_template(config: AudioConfig) -> str:
+    if config.vocal_cmd:
+        return config.vocal_cmd
+    env_by_backend = {
+        "f5_tts": "F5_TTS_CMD",
+        "cosyvoice": "COSYVOICE_CMD",
+        "ace_step": "ACE_STEP_CMD",
+        "ace_step_full_song": "ACE_STEP_CMD",
+    }
+    env_name = env_by_backend.get(config.vocal_backend)
+    if env_name and os.getenv(env_name):
+        return str(os.getenv(env_name))
+    if config.vocal_backend in {"ace_step", "ace_step_full_song"}:
+        return _require_template(config.ace_step_cmd or os.getenv("ACE_STEP_CMD"), "ACE-Step vocal")
+    return _require_template(None, f"{config.vocal_backend} vocal")
+
+
+def _backing_template(config: AudioConfig) -> str:
+    if config.backing_cmd:
+        return config.backing_cmd
+    if config.backing_backend == "musicgen":
+        return _require_template(config.musicgen_cmd or os.getenv("MUSICGEN_CMD"), "MusicGen backing")
+    if config.backing_backend == "stable_audio":
+        return _require_template(os.getenv("STABLE_AUDIO_CMD"), "Stable Audio backing")
+    return _require_template(config.ace_step_cmd or os.getenv("ACE_STEP_CMD"), "ACE-Step backing")
+
+
+def _song_template(config: AudioConfig) -> str:
+    if config.song_cmd:
+        return config.song_cmd
+    if config.vocal_backend == "yue_full_song":
+        return _require_template(os.getenv("YUE_CMD"), "YuE full-song")
+    return _require_template(config.ace_step_cmd or os.getenv("ACE_STEP_CMD"), "ACE-Step full-song")
 
 
 def _find_ffmpeg(config: AudioConfig) -> str:
@@ -439,8 +504,8 @@ def _generate_scene_lyrics_mix(
     )
     backing = scene_work_dir / "backing.wav"
 
-    ace_template = config.ace_step_cmd or os.getenv("ACE_STEP_CMD")
-    backing_template = config.backing_cmd or os.getenv("BACKING_CMD") or ace_template
+    _validate_voice_reference(config)
+    backing_template = _backing_template(config)
     if not backing.exists():
         _run_template(
             backing_template,
@@ -448,6 +513,7 @@ def _generate_scene_lyrics_mix(
                 values,
                 lyrics_file=str(backing_lyrics_path),
                 prompt_file=str(backing_prompt_path),
+                music_prompt=backing_prompt,
                 output_file=str(backing),
                 duration=f"{duration:.3f}",
                 seed=str(config.seed + 1000),
@@ -456,7 +522,7 @@ def _generate_scene_lyrics_mix(
             "backing-track generation",
         )
 
-    vocal_template = config.vocal_cmd or os.getenv("VOCAL_CMD") or ace_template
+    vocal_template = _vocal_template(config)
     prepared_vocals = []
     for index, line in enumerate(lyric_lines, start=1):
         scene_duration = scene_durations[index - 1]
@@ -487,6 +553,11 @@ def _generate_scene_lyrics_mix(
                     values,
                     lyrics_file=str(line_lyrics_path),
                     prompt_file=str(line_prompt_path),
+                    text=line,
+                    gen_text=line,
+                    voice_style=config.audio_voice_style,
+                    ref_audio=str(config.voice_ref_audio or ""),
+                    ref_text=str(config.voice_ref_text or ""),
                     output_file=str(raw_vocal),
                     duration=f"{vocal_duration:.3f}",
                     seed=str(config.seed + index),
@@ -556,25 +627,37 @@ def generate_audio_for_story(config: AudioConfig) -> Path | None:
         "seed": str(config.seed),
     }
 
+    render_mode = "scene_lyrics_mix" if config.audio_mode == "hybrid_voice_bed" else config.audio_mode
     mixed_song = work_dir / "mixed_song.wav"
-    if config.audio_mode == "full_song":
+    if render_mode == "full_song":
         source_song = work_dir / "song.wav"
         values["output_file"] = str(source_song)
-        ace_template = config.ace_step_cmd or os.getenv("ACE_STEP_CMD")
-        _run_template(ace_template, values, "ACE-Step")
+        _run_template(_song_template(config), values, config.vocal_backend)
         _normalize_full_song(ffmpeg, source_song, mixed_song, duration)
-    elif config.audio_mode == "scene_lyrics_mix":
+    elif render_mode == "scene_lyrics_mix":
         _generate_scene_lyrics_mix(config, story, ffmpeg, work_dir, values, lyrics, mixed_song, duration, output_dir)
     else:
         vocals = work_dir / "vocals.wav"
         backing = work_dir / "backing.wav"
-        vocal_template = config.vocal_cmd or os.getenv("VOCAL_CMD") or config.ace_step_cmd or os.getenv("ACE_STEP_CMD")
-        if config.backing_backend == "musicgen":
-            backing_template = config.musicgen_cmd or os.getenv("MUSICGEN_CMD")
-        else:
-            backing_template = config.backing_cmd or os.getenv("BACKING_CMD") or config.ace_step_cmd or os.getenv("ACE_STEP_CMD")
-        vocal_values = dict(values, output_file=str(vocals), mode="vocals")
-        backing_values = dict(values, output_file=str(backing), mode="backing")
+        _validate_voice_reference(config)
+        vocal_template = _vocal_template(config)
+        backing_template = _backing_template(config)
+        vocal_values = dict(
+            values,
+            output_file=str(vocals),
+            mode="vocals",
+            text=lyrics,
+            gen_text=lyrics,
+            voice_style=config.audio_voice_style,
+            ref_audio=str(config.voice_ref_audio or ""),
+            ref_text=str(config.voice_ref_text or ""),
+        )
+        backing_values = dict(
+            values,
+            output_file=str(backing),
+            mode="backing",
+            music_prompt=_audio_style_prompt(story, config),
+        )
         _run_template(vocal_template, vocal_values, "vocal generation")
         _run_template(backing_template, backing_values, "backing-track generation")
         _mix_stems(ffmpeg, vocals, backing, mixed_song, duration)
@@ -589,9 +672,9 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--story_script_path", required=True)
     parser.add_argument("--output_dir", required=True)
     parser.add_argument("--final_video", default=None)
-    parser.add_argument("--audio_mode", choices=["full_song", "separate_stems", "scene_lyrics_mix"], default="full_song")
+    parser.add_argument("--audio_mode", choices=["full_song", "separate_stems", "scene_lyrics_mix", "hybrid_voice_bed"], default="full_song")
     parser.add_argument("--vocal_backend", default="ace_step")
-    parser.add_argument("--backing_backend", choices=["ace_step", "musicgen"], default="ace_step")
+    parser.add_argument("--backing_backend", choices=["ace_step", "musicgen", "stable_audio"], default="ace_step")
     parser.add_argument("--audio_voice_style", default="gentle adult lullaby")
     parser.add_argument("--audio_output_suffix", default="_with_music")
     parser.add_argument("--audio_skip_on_error", action="store_true")
@@ -602,6 +685,9 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--vocal_cmd", default=None)
     parser.add_argument("--backing_cmd", default=None)
     parser.add_argument("--musicgen_cmd", default=None)
+    parser.add_argument("--song_cmd", default=None)
+    parser.add_argument("--voice_ref_audio", default=os.getenv("VOICE_REF_AUDIO"))
+    parser.add_argument("--voice_ref_text", default=os.getenv("VOICE_REF_TEXT"))
     parser.add_argument("--ffmpeg_bin", default=None)
     parser.add_argument("--seed", type=int, default=0)
     return parser.parse_args()

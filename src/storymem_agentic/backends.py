@@ -36,6 +36,7 @@ def _fallback_config() -> dict[str, Any]:
         "voice_backend": "f5_tts",
         "music_backend": "musicgen",
         "aligner_backend": "whisperx",
+        "media_audio_mode": "hybrid_voice_bed",
         "mix": {
             "sample_rate": 48000,
             "target_lufs": -15.0,
@@ -51,11 +52,15 @@ def _fallback_config() -> dict[str, Any]:
             },
             "cosyvoice": {
                 "kind": "voice",
-                "command": "cosyvoice-infer --text '${text}' --style '${voice_style}' --output '${output_file}'",
+                "command": "cosyvoice-infer --text '${text}' --prompt-audio '${ref_audio}' --prompt-text '${ref_text}' --style '${voice_style}' --output '${output_file}'",
             },
             "musicgen": {
                 "kind": "music",
                 "command": "musicgen-generate --prompt '${music_prompt}' --duration ${duration} --output '${output_file}'",
+            },
+            "stable_audio": {
+                "kind": "music",
+                "command": "stable-audio-generate --prompt '${music_prompt}' --duration ${duration} --output '${output_file}'",
             },
             "ace_step_full_song": {
                 "kind": "song",
@@ -89,6 +94,7 @@ def default_backends(config_path: str | Path | None = None) -> dict[str, Backend
         "f5_tts": "Exact spoken nursery-rhyme line generation with a stable reference voice.",
         "cosyvoice": "Instruction-controlled TTS alternative for style, speed, and emotion control.",
         "musicgen": "Continuous instrumental bed generation.",
+        "stable_audio": "Continuous instrumental bed alternative.",
         "ace_step_full_song": "Whole-song generation only; do not use for independent scene segments.",
         "yue_full_song": "Optional high-resource full-song lyrics-to-song backend.",
         "whisperx": "Word-level alignment and lyric timing evaluation.",

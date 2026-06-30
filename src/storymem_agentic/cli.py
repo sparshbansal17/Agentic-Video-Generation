@@ -55,6 +55,9 @@ def postprocess_audio(args: argparse.Namespace) -> int:
         vocal_cmd=args.vocal_cmd,
         backing_cmd=args.backing_cmd,
         musicgen_cmd=args.musicgen_cmd,
+        song_cmd=args.song_cmd,
+        voice_ref_audio=args.voice_ref_audio,
+        voice_ref_text=args.voice_ref_text,
         ffmpeg_bin=args.ffmpeg_bin,
         seed=args.seed,
         dry_run=args.dry_run,
@@ -111,12 +114,17 @@ def workflow(args: argparse.Namespace) -> int:
         strict_lullaby_review=args.strict_lullaby_review,
         generate_audio=args.generate_audio,
         media_audio_mode=args.media_audio_mode,
+        voice_backend=args.voice_backend,
+        music_backend=args.music_backend,
         audio_output_suffix=args.audio_output_suffix,
         audio_voice_style=args.audio_voice_style,
         ace_step_cmd=args.ace_step_cmd,
         vocal_cmd=args.vocal_cmd,
         backing_cmd=args.backing_cmd,
         musicgen_cmd=args.musicgen_cmd,
+        song_cmd=args.song_cmd,
+        voice_ref_audio=args.voice_ref_audio,
+        voice_ref_text=args.voice_ref_text,
     )
     print(result["latest_iteration"])
     return 0 if result["passed"] or args.workflow_mode in {"dry_run", "generate"} else 3
@@ -152,13 +160,16 @@ def build_parser() -> argparse.ArgumentParser:
     post.add_argument("--mode", choices=["voice_bed", "full_song"], default="full_song")
     post.add_argument("--voice-backend", default="ace_step_full_song")
     post.add_argument("--music-backend", default="ace_step_full_song")
-    post.add_argument("--media-audio-mode", choices=["full_song", "separate_stems", "scene_lyrics_mix"], default="full_song")
+    post.add_argument("--media-audio-mode", choices=["full_song", "separate_stems", "scene_lyrics_mix", "hybrid_voice_bed"], default="full_song")
     post.add_argument("--audio-output-suffix", default="_with_music")
     post.add_argument("--audio-voice-style", default="gentle adult lullaby")
     post.add_argument("--ace-step-cmd")
     post.add_argument("--vocal-cmd")
     post.add_argument("--backing-cmd")
     post.add_argument("--musicgen-cmd")
+    post.add_argument("--song-cmd")
+    post.add_argument("--voice-ref-audio")
+    post.add_argument("--voice-ref-text")
     post.add_argument("--ffmpeg-bin")
     post.add_argument("--seed", type=int, default=0)
     post.add_argument("--dry-run", action=argparse.BooleanOptionalAction, default=False)
@@ -192,13 +203,18 @@ def build_parser() -> argparse.ArgumentParser:
         command.add_argument("--audio-aligner", choices=["whisperx", "none"], default="whisperx")
         command.add_argument("--strict-lullaby-review", action=argparse.BooleanOptionalAction, default=True)
         command.add_argument("--generate-audio", action=argparse.BooleanOptionalAction, default=True)
-        command.add_argument("--media-audio-mode", choices=["full_song", "separate_stems", "scene_lyrics_mix"], default="full_song")
+        command.add_argument("--media-audio-mode", choices=["full_song", "separate_stems", "scene_lyrics_mix", "hybrid_voice_bed"], default="full_song")
+        command.add_argument("--voice-backend", choices=["ace_step_full_song", "ace_step", "f5_tts", "cosyvoice", "yue_full_song"], default=None)
+        command.add_argument("--music-backend", choices=["ace_step_full_song", "ace_step", "musicgen", "stable_audio"], default=None)
         command.add_argument("--audio-output-suffix", default="_with_music")
         command.add_argument("--audio-voice-style", default="gentle adult lullaby")
         command.add_argument("--ace-step-cmd")
         command.add_argument("--vocal-cmd")
         command.add_argument("--backing-cmd")
         command.add_argument("--musicgen-cmd")
+        command.add_argument("--song-cmd")
+        command.add_argument("--voice-ref-audio")
+        command.add_argument("--voice-ref-text")
         command.add_argument("--storymem-dir")
         command.add_argument("--t2v-model-path")
         command.add_argument("--i2v-model-path")

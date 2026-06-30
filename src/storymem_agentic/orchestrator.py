@@ -446,12 +446,17 @@ def run_workflow(
     strict_lullaby_review: bool = True,
     generate_audio: bool = True,
     media_audio_mode: str = "full_song",
+    voice_backend: str | None = None,
+    music_backend: str | None = None,
     audio_output_suffix: str = "_with_music",
     audio_voice_style: str = "warm clear toddler nursery singalong vocal, exact lyrics, gentle adult lead with soft childlike brightness, music box, celesta, glockenspiel star twinkles, soft strings, light harp, slow 3/4 sway, vocals forward",
     ace_step_cmd: str | None = None,
     vocal_cmd: str | None = None,
     backing_cmd: str | None = None,
     musicgen_cmd: str | None = None,
+    song_cmd: str | None = None,
+    voice_ref_audio: str | None = None,
+    voice_ref_text: str | None = None,
 ) -> dict[str, Any]:
     root = Path(output_dir)
     root.mkdir(parents=True, exist_ok=True)
@@ -526,7 +531,7 @@ def run_workflow(
             if cached_audio_result_path.exists():
                 cached_audio_result = json.loads(cached_audio_result_path.read_text(encoding="utf-8"))
                 if cached_audio_result.get("fallback_from_full_song"):
-                    current_media_audio_mode = "scene_lyrics_mix"
+                    current_media_audio_mode = "hybrid_voice_bed" if media_audio_mode == "hybrid_voice_bed" else "scene_lyrics_mix"
             if latest_report.passed:
                 break
             if cached_revision.target_scenes:
@@ -537,7 +542,7 @@ def run_workflow(
                 reuse_generated_video_dir = cached_paths["generated_dir"]
                 visual_regeneration_start_scene = None
                 if current_media_audio_mode == "full_song" and _is_whisperx_timing_failure(latest_report):
-                    current_media_audio_mode = "scene_lyrics_mix"
+                    current_media_audio_mode = "hybrid_voice_bed" if media_audio_mode == "hybrid_voice_bed" else "scene_lyrics_mix"
             else:
                 reuse_generated_video_dir = None
                 visual_regeneration_start_scene = None
@@ -627,8 +632,18 @@ def run_workflow(
         final_candidate = video_candidate
         audio_result: dict[str, Any] | None = None
         if mode in {"generate", "iterate"} and generate_audio and video_candidate.exists():
-            audio_voice_backend = "ace_step_full_song" if plan.audio_mode == "full_song" else "f5_tts"
-            audio_music_backend = "ace_step_full_song" if plan.audio_mode == "full_song" else "musicgen"
+            if voice_backend:
+                audio_voice_backend = voice_backend
+            elif current_media_audio_mode == "hybrid_voice_bed":
+                audio_voice_backend = "f5_tts"
+            else:
+                audio_voice_backend = "ace_step_full_song" if plan.audio_mode == "full_song" else "f5_tts"
+            if music_backend:
+                audio_music_backend = music_backend
+            elif current_media_audio_mode == "hybrid_voice_bed":
+                audio_music_backend = "musicgen"
+            else:
+                audio_music_backend = "ace_step_full_song" if plan.audio_mode == "full_song" else "musicgen"
             effective_media_audio_mode = media_audio_mode
             if plan.audio_mode == "voice_bed" and media_audio_mode == "full_song":
                 effective_media_audio_mode = "separate_stems"
@@ -649,6 +664,9 @@ def run_workflow(
                     vocal_cmd=vocal_cmd,
                     backing_cmd=backing_cmd,
                     musicgen_cmd=musicgen_cmd,
+                    song_cmd=song_cmd,
+                    voice_ref_audio=voice_ref_audio,
+                    voice_ref_text=voice_ref_text,
                     ffmpeg_bin=ffmpeg_bin,
                     seed=seed + ((iteration - 1) * 9973) + seed_offset,
                     dry_run=False,
@@ -699,7 +717,7 @@ def run_workflow(
                 }
                 write_json(latest_paths["iteration_dir"] / "full_song_audio_fallback.json", fallback_record)
                 write_json(latest_paths["iteration_dir"] / "whisperx_full_song_alignment.json", full_song_alignment)
-                current_media_audio_mode = "scene_lyrics_mix"
+                current_media_audio_mode = "hybrid_voice_bed" if media_audio_mode == "hybrid_voice_bed" else "scene_lyrics_mix"
                 audio_result = render_audio_candidate(current_media_audio_mode, seed_offset=503)
                 if audio_result.get("media_output"):
                     final_candidate = Path(str(audio_result["media_output"]))
@@ -711,7 +729,7 @@ def run_workflow(
             mode in {"generate", "iterate"}
             and generate_audio
             and audio_aligner == "whisperx"
-            and current_media_audio_mode == "scene_lyrics_mix"
+            and current_media_audio_mode in {"scene_lyrics_mix", "hybrid_voice_bed"}
             and audio_result is not None
             and final_candidate.exists()
             and whisperx_alignment_path.exists()
@@ -735,7 +753,7 @@ def run_workflow(
             if _needs_scene_lyrics_audio_fallback(best_alignment):
                 for attempt, retry_seed_offset in enumerate([1601, 3203, 4801, 6407], start=1):
                     shutil.rmtree(latest_paths["generated_dir"] / "audio", ignore_errors=True)
-                    retry_audio_result = render_audio_candidate("scene_lyrics_mix", seed_offset=retry_seed_offset)
+                    retry_audio_result = render_audio_candidate(current_media_audio_mode, seed_offset=retry_seed_offset)
                     if retry_audio_result.get("media_output"):
                         final_candidate = Path(str(retry_audio_result["media_output"]))
                     run_audio_alignment(final_candidate, f"whisperx_scene_lyrics_mix_retry_{attempt:02d}")
@@ -824,7 +842,7 @@ def run_workflow(
             reuse_generated_video_dir = latest_paths["generated_dir"]
             visual_regeneration_start_scene = None
             if current_media_audio_mode == "full_song" and _is_whisperx_timing_failure(latest_report):
-                current_media_audio_mode = "scene_lyrics_mix"
+                current_media_audio_mode = "hybrid_voice_bed" if media_audio_mode == "hybrid_voice_bed" else "scene_lyrics_mix"
         else:
             reuse_generated_video_dir = None
             visual_regeneration_start_scene = None

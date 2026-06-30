@@ -189,6 +189,9 @@ def run_audio_postprocess(
     vocal_cmd: str | None = None,
     backing_cmd: str | None = None,
     musicgen_cmd: str | None = None,
+    song_cmd: str | None = None,
+    voice_ref_audio: str | None = None,
+    voice_ref_text: str | None = None,
     ffmpeg_bin: str | None = None,
     seed: int = 0,
     dry_run: bool = False,
@@ -214,6 +217,12 @@ def run_audio_postprocess(
 
     media_output: Path | None = None
     if not dry_run:
+        if music_backend == "musicgen":
+            backing_backend = "musicgen"
+        elif music_backend == "stable_audio":
+            backing_backend = "stable_audio"
+        else:
+            backing_backend = "ace_step"
         media_output = generate_audio_for_story(
             AudioConfig(
                 story_script_path=str(story_json),
@@ -221,7 +230,7 @@ def run_audio_postprocess(
                 final_video=str(video_path),
                 audio_mode=media_audio_mode,
                 vocal_backend=voice_backend,
-                backing_backend="musicgen" if music_backend == "musicgen" else "ace_step",
+                backing_backend=backing_backend,
                 audio_voice_style=audio_voice_style,
                 audio_output_suffix=audio_output_suffix,
                 lyrics_file=str(audio_result.audio_plan_path.parent / "lyrics.txt"),
@@ -229,6 +238,9 @@ def run_audio_postprocess(
                 vocal_cmd=vocal_cmd,
                 backing_cmd=backing_cmd,
                 musicgen_cmd=musicgen_cmd,
+                song_cmd=song_cmd,
+                voice_ref_audio=voice_ref_audio,
+                voice_ref_text=voice_ref_text,
                 ffmpeg_bin=ffmpeg_bin,
                 seed=seed,
             )
@@ -247,6 +259,8 @@ def run_audio_postprocess(
             "voice_backend": voice_backend,
             "music_backend": music_backend,
             "media_audio_mode": media_audio_mode,
+            "voice_ref_audio": voice_ref_audio,
+            "has_voice_ref_text": bool((voice_ref_text or "").strip()),
         },
         "stages": [
             asdict(
