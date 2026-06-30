@@ -664,7 +664,7 @@ class AgenticArchitectureTests(unittest.TestCase):
             [(segment.start_seconds, segment.end_seconds) for segment in plan.lyric_segments],
         )
 
-    def test_storymem_commands_split_first_shot_story_from_full_story(self):
+    def test_storymem_commands_generate_hard_cuts_with_t2v_full_story(self):
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp) / "commands"
             code = main(
@@ -691,15 +691,35 @@ class AgenticArchitectureTests(unittest.TestCase):
             self.assertEqual(code, 0)
             iteration = out / "iterations" / "001"
             commands = json.loads((iteration / "storymem_commands.json").read_text(encoding="utf-8"))["commands"]
-            self.assertTrue(any("story_t2v_first_shot.json" in value for value in commands[0]))
+            self.assertTrue(any(value.endswith("story.json") for value in commands[0]))
             self.assertTrue(any(value.endswith("story.json") for value in commands[1]))
             self.assertIn("--t2v_first_shot", commands[0])
+            self.assertIn("--t2v_cut_shots", commands[0])
             self.assertNotIn("--mi2v", commands[0])
             self.assertIn("--mi2v", commands[1])
             first_story = json.loads((iteration / "story_t2v_first_shot.json").read_text(encoding="utf-8"))
             full_story = json.loads((iteration / "story.json").read_text(encoding="utf-8"))
             self.assertEqual(len(first_story["scenes"]), 1)
             self.assertGreater(len(full_story["scenes"]), 1)
+
+    def test_storymem_commands_can_use_first_shot_only_t2v(self):
+        from storymem_agentic.orchestrator import build_storymem_commands
+
+        commands = build_storymem_commands(
+            story_json=Path("relative/out/iterations/001/story.json"),
+            first_shot_story_json=Path("relative/out/iterations/001/story_t2v_first_shot.json"),
+            output_dir=Path("relative/out/iterations/001/generated"),
+            storymem_dir="/tmp/storymem",
+            t2v_model_path=Path("models/t2v"),
+            i2v_model_path=Path("models/i2v"),
+            lora_weight_path=Path("models/lora"),
+            nproc_per_node=2,
+            t2v_cut_shots=False,
+        )
+
+        first = commands[0]
+        self.assertTrue(any("story_t2v_first_shot.json" in value for value in first))
+        self.assertNotIn("--t2v_cut_shots", first)
 
     def test_first_shot_keyframe_fallback_uses_last_frame(self) -> None:
         from storymem_agentic.orchestrator import ensure_first_shot_memory_keyframe

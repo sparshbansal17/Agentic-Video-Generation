@@ -43,6 +43,7 @@ def _parse_args():
     parser.add_argument("--frame_num", type=int, default=None, help="How many frames of video are generated. The number should be 4n+1")
     parser.add_argument("--offload_model", action="store_true", help="Whether to offload the model to CPU after each model forward, reducing GPU memory usage.")
     parser.add_argument("--t2v_first_shot", action="store_true", help="Whether to generate the first shot with T2V model.")
+    parser.add_argument("--t2v_cut_shots", action="store_true", help="When generating the T2V pass, generate every story shot marked as a hard cut instead of only scene 1 shot 1.")
     parser.add_argument("--m2v_first_shot", action="store_true", help="Whether to generate the first shot with M2V model.")
     parser.add_argument("--mi2v", action="store_true", help="Whether to start from last frame of last video shot with MI2V")
     parser.add_argument("--mm2v", action="store_true", help="Whether to start from last frame of last video shot with MM2V")
@@ -69,6 +70,39 @@ def _parse_args():
     parser.add_argument("--ffmpeg_bin", type=str, default=None)
     args = parser.parse_args()
     return args
+
+
+def _scene_value(scene, key, index, default=None):
+    value = scene.get(key, default)
+    if isinstance(value, list):
+        if index < len(value):
+            return value[index]
+        return default
+    return value
+
+
+def _prompt_for_t2v(scene, index):
+    prompt = scene["video_prompts"][index]
+    first_frame_prompt = _scene_value(scene, "first_frame_prompt", index)
+    if first_frame_prompt:
+        return (
+            f"Opening frame requirement: {first_frame_prompt}\n"
+            f"Video motion and scene requirement: {prompt}"
+        )
+    return prompt
+
+
+def _t2v_generation_targets(story_script, include_cut_shots):
+    targets = []
+    for scene in story_script.get("scenes", []):
+        scene_num = int(scene["scene_num"])
+        for index, _ in enumerate(scene.get("video_prompts", [])):
+            shot_num = index + 1
+            is_first_shot = scene_num == 1 and shot_num == 1
+            is_hard_cut = bool(_scene_value(scene, "cut", index, False))
+            if is_first_shot or (include_cut_shots and is_hard_cut):
+                targets.append((scene, index, scene_num, shot_num))
+    return targets
 
 def _init_logging(rank, log_file):
     for handler in logging.root.handlers[:]:
@@ -272,11 +306,15 @@ def main(args):
     story_script = json5.load(open(args.story_script_path, "r", encoding="utf-8"))
     os.makedirs(args.output_dir, exist_ok=True)
 
-    ###### Generate first-shot videos ######
+    ###### Generate first-shot / hard-cut T2V videos ######
     if args.t2v_first_shot:
-        first_shot_path = f"{args.output_dir}/01_01.mp4"
-        if os.path.exists(first_shot_path):
-            logging.info(f"Skipping T2V first shot because output already exists: {first_shot_path}")
+        t2v_targets = _t2v_generation_targets(story_script, args.t2v_cut_shots)
+        pending_t2v_targets = [
+            target for target in t2v_targets
+            if not os.path.exists(f"{args.output_dir}/{target[2]:02d}_{target[3]:02d}.mp4")
+        ]
+        if not pending_t2v_targets:
+            logging.info("Skipping T2V pass because all requested T2V hard-cut shots already exist.")
             _destroy_distributed()
             return
 
@@ -295,57 +333,38 @@ def main(args):
             convert_model_dtype=args.convert_model_dtype,
         )
 
-        prompt = story_script["scenes"][0]["video_prompts"][0]
-        logging.info(f"Generating Scene 1 / Shot 1: {prompt}")
-        # if args.use_prompt_extend:
-        #     logging.info("Extending prompt ...")
-        #     if rank == 0:
-        #         prompt_output = prompt_expander(
-        #             prompt,
-        #             tar_lang="en",
-        #             seed=args.base_seed)
-        #         if prompt_output.status == False:
-        #             logging.info(
-        #                 f"Extending prompt failed: {prompt_output.message}")
-        #             logging.info("Falling back to original prompt.")
-        #             input_prompt = args.prompt
-        #         else:
-        #             input_prompt = prompt_output.prompt
-        #         input_prompt = [input_prompt]
-        #     else:
-        #         input_prompt = [None]
-        #     if dist.is_initialized():
-        #         dist.broadcast_object_list(input_prompt, src=0)
-        #     prompt = input_prompt[0]
-        #     logging.info(f"Extended prompt: {prompt}")
+        for scene, index, scene_num, shot_num in pending_t2v_targets:
+            prompt = _prompt_for_t2v(scene, index)
+            output_video_path = f"{args.output_dir}/{scene_num:02d}_{shot_num:02d}.mp4"
+            logging.info(f"Generating T2V hard-cut Scene {scene_num} / Shot {shot_num}: {prompt}")
 
-        video = t2v_model.generate(
-            prompt,
-            size=SIZE_CONFIGS[args.size],
-            frame_num=args.frame_num or t2v_config.frame_num,
-            shift=t2v_config.sample_shift,
-            sample_solver=args.sample_solver,
-            sampling_steps=args.sample_steps or t2v_config.sample_steps,
-            guide_scale=args.sample_guide_scale,
-            seed=args.seed,
-            offload_model=args.offload_model
-        )
-
-        if rank == 0:
-            save_video(
-                tensor=video[None],
-                save_file=f"{args.output_dir}/01_01.mp4",
-                fps=t2v_config.sample_fps,
-                nrow=1,
-                normalize=True,
-                value_range=(-1, 1)
+            video = t2v_model.generate(
+                prompt,
+                size=SIZE_CONFIGS[args.size],
+                frame_num=args.frame_num or t2v_config.frame_num,
+                shift=t2v_config.sample_shift,
+                sample_solver=args.sample_solver,
+                sampling_steps=args.sample_steps or t2v_config.sample_steps,
+                guide_scale=args.sample_guide_scale,
+                seed=args.seed + scene_num * 100 + shot_num,
+                offload_model=args.offload_model
             )
-            if args.keyframe_mode == "hps":
-                save_keyframes(f"{args.output_dir}/01_01.mp4")
-            elif args.keyframe_mode == "simple":
-                save_keyframes_simple(f"{args.output_dir}/01_01.mp4")
-            del video
-            torch.cuda.empty_cache()
+
+            if rank == 0:
+                save_video(
+                    tensor=video[None],
+                    save_file=output_video_path,
+                    fps=t2v_config.sample_fps,
+                    nrow=1,
+                    normalize=True,
+                    value_range=(-1, 1)
+                )
+                if args.keyframe_mode == "hps":
+                    save_keyframes(output_video_path)
+                elif args.keyframe_mode == "simple":
+                    save_keyframes_simple(output_video_path)
+                del video
+                torch.cuda.empty_cache()
 
         del t2v_model
 
@@ -454,7 +473,7 @@ def main(args):
                 sample_solver=args.sample_solver,
                 sampling_steps=args.sample_steps or m2v_config.sample_steps,
                 guide_scale=args.sample_guide_scale,
-                seed=args.seed+i,
+                seed=args.seed + scene_num * 100 + shot_num,
                 offload_model=args.offload_model
             )
 

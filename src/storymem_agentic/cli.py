@@ -103,6 +103,7 @@ def workflow(args: argparse.Namespace) -> int:
         storymem_sample_steps=args.storymem_sample_steps,
         storymem_frame_num=args.storymem_frame_num,
         storymem_keyframe_mode=args.storymem_keyframe_mode,
+        storymem_t2v_cut_shots=args.storymem_t2v_cut_shots,
         execute_video=args.execute_video,
         character_db_path=args.character_db,
         planner_backend=args.planner_backend,
@@ -226,6 +227,7 @@ def build_parser() -> argparse.ArgumentParser:
         command.add_argument("--storymem-sample-steps", type=int)
         command.add_argument("--storymem-frame-num", type=int)
         command.add_argument("--storymem-keyframe-mode", choices=["hps", "simple", "off"], default="hps")
+        command.add_argument("--storymem-t2v-cut-shots", action=argparse.BooleanOptionalAction, default=True)
         command.add_argument("--execute-video", action=argparse.BooleanOptionalAction, default=False)
         command.set_defaults(func=workflow, workflow_mode=mode)
     return parser

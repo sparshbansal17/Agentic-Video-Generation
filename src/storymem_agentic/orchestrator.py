@@ -163,6 +163,7 @@ def build_storymem_commands(
     sample_steps: int | None = None,
     frame_num: int | None = None,
     keyframe_mode: str = "hps",
+    t2v_cut_shots: bool = True,
 ) -> list[list[str]]:
     story_json = story_json.resolve()
     first_shot_story_json = first_shot_story_json.resolve() if first_shot_story_json else None
@@ -213,7 +214,10 @@ def build_storymem_commands(
             command.append("--mi2v")
         return command
 
-    first = [*command_for(first_shot_story_json or story_json, mi2v=False), "--t2v_first_shot"]
+    t2v_story_json = story_json if t2v_cut_shots else (first_shot_story_json or story_json)
+    first = [*command_for(t2v_story_json, mi2v=False), "--t2v_first_shot"]
+    if t2v_cut_shots:
+        first.append("--t2v_cut_shots")
     second = command_for(story_json, mi2v=True)
     return [first, second]
 
@@ -235,6 +239,7 @@ def build_storymem_continuation_command(
     sample_steps: int | None = None,
     frame_num: int | None = None,
     keyframe_mode: str = "hps",
+    t2v_cut_shots: bool = True,
 ) -> list[str]:
     story_json = story_json.resolve()
     output_dir = output_dir.resolve()
@@ -435,6 +440,7 @@ def run_workflow(
     storymem_sample_steps: int | None = None,
     storymem_frame_num: int | None = None,
     storymem_keyframe_mode: str = "hps",
+    storymem_t2v_cut_shots: bool = True,
     execute_video: bool = False,
     character_db_path: str | Path | None = None,
     planner_backend: str = "mock",
@@ -575,6 +581,7 @@ def run_workflow(
                             sample_steps=storymem_sample_steps,
                             frame_num=storymem_frame_num,
                             keyframe_mode=storymem_keyframe_mode,
+                            t2v_cut_shots=storymem_t2v_cut_shots,
                         )
                     ]
                     write_json(
@@ -613,6 +620,7 @@ def run_workflow(
                     sample_steps=storymem_sample_steps,
                     frame_num=storymem_frame_num,
                     keyframe_mode=storymem_keyframe_mode,
+                    t2v_cut_shots=storymem_t2v_cut_shots,
                 )
                 write_json(latest_paths["iteration_dir"] / "storymem_commands.json", {"commands": commands})
                 if execute_video:
