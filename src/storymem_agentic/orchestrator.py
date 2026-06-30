@@ -18,7 +18,7 @@ from .mixer import build_mix_manifest, write_mix_manifest
 from .planner import PromptPlannerAgent
 from .runner import run_audio_postprocess
 from .schemas import EvaluationReport, NurseryRhymeInput, ProductionPlan, RevisionPlan, SceneHint
-from .story_writer import rhyme_text_from_plan, story_from_plan
+from .story_writer import rhyme_text_from_plan, story_from_plan, storymem_script_from_plan
 
 
 def write_json(path: Path, payload: dict[str, Any]) -> Path:
@@ -70,14 +70,14 @@ def write_iteration_artifacts(root: Path, iteration: int, plan: ProductionPlan, 
     generated_dir.mkdir(parents=True, exist_ok=True)
 
     story = story_from_plan(plan)
+    storymem_story = storymem_script_from_plan(plan)
     first_shot_story = {
-        **story,
+        **storymem_story,
         "scenes": [
             {
-                **story["scenes"][0],
-                "video_prompts": [story["scenes"][0]["video_prompts"][0]],
-                "first_frame_prompt": [story["scenes"][0]["first_frame_prompt"][0]],
-                "cut": [story["scenes"][0]["cut"][0]],
+                **storymem_story["scenes"][0],
+                "video_prompts": [storymem_story["scenes"][0]["video_prompts"][0]],
+                "cut": [storymem_story["scenes"][0]["cut"][0]],
             }
         ],
     }
@@ -102,6 +102,7 @@ def write_iteration_artifacts(root: Path, iteration: int, plan: ProductionPlan, 
         "generated_dir": generated_dir,
         "production_plan": write_json(iteration_dir / "production_plan.json", plan.to_dict()),
         "story": write_json(iteration_dir / "story.json", story),
+        "storymem_story": write_json(iteration_dir / "storymem_story.json", storymem_story),
         "story_t2v_first_shot": write_json(iteration_dir / "story_t2v_first_shot.json", first_shot_story),
         "audio_plan": write_json(iteration_dir / "audio_plan.json", audio_plan.to_dict()),
         "mix_manifest": write_mix_manifest(iteration_dir / "mix_manifest.json", mix_manifest),
@@ -138,6 +139,7 @@ def existing_iteration_paths(root: Path, iteration: int) -> dict[str, Path]:
         "generated_dir": generated_dir,
         "production_plan": iteration_dir / "production_plan.json",
         "story": iteration_dir / "story.json",
+        "storymem_story": iteration_dir / "storymem_story.json",
         "story_t2v_first_shot": iteration_dir / "story_t2v_first_shot.json",
         "audio_plan": iteration_dir / "audio_plan.json",
         "mix_manifest": iteration_dir / "mix_manifest.json",
@@ -288,6 +290,13 @@ def write_targeted_story_json(full_story_path: Path, output_path: Path, start_sc
         scene for scene in story.get("scenes", []) if int(scene.get("scene_num", 0)) >= start_scene_num
     ]
     return write_json(output_path, story)
+
+
+def _storymem_story_path(paths: dict[str, Path]) -> Path:
+    storymem_story = paths.get("storymem_story")
+    if storymem_story and storymem_story.exists():
+        return storymem_story
+    return paths["story"]
 
 
 def _command_option(command: list[str], option: str) -> str | None:
@@ -556,7 +565,7 @@ def run_workflow(
                 shutil.copytree(reuse_generated_video_dir, latest_paths["generated_dir"], dirs_exist_ok=True)
                 if visual_regeneration_start_scene is not None and storymem_dir and t2v_model_path and i2v_model_path and lora_weight_path:
                     targeted_story = write_targeted_story_json(
-                        latest_paths["story"],
+                        _storymem_story_path(latest_paths),
                         latest_paths["iteration_dir"] / f"story_from_scene_{visual_regeneration_start_scene:02d}.json",
                         visual_regeneration_start_scene,
                     )
@@ -599,7 +608,7 @@ def run_workflow(
                     )
             elif storymem_dir and t2v_model_path and i2v_model_path and lora_weight_path:
                 commands = build_storymem_commands(
-                    story_json=latest_paths["story"],
+                    story_json=_storymem_story_path(latest_paths),
                     first_shot_story_json=latest_paths["story_t2v_first_shot"],
                     output_dir=latest_paths["generated_dir"],
                     storymem_dir=storymem_dir,

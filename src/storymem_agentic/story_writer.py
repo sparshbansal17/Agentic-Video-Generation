@@ -39,5 +39,25 @@ def story_from_plan(plan: ProductionPlan) -> dict:
     }
 
 
+def storymem_script_from_plan(plan: ProductionPlan) -> dict:
+    plan.validate()
+    return {
+        "story_overview": (
+            f"A simple nursery-rhyme bedtime video for {plan.rhyme.target_audience}. "
+            "Each five-second shot follows the planner-authored visual beat, with calm child-safe motion."
+        ),
+        "scenes": [
+            {
+                "scene_num": scene.scene_num,
+                "video_prompts": [scene.video_prompt],
+                "cut": [scene.cut],
+                # The parent pipeline uses this only when burning subtitles after generation.
+                "subtitle_text": scene.subtitle_text,
+            }
+            for scene in plan.scenes
+        ],
+    }
+
+
 def rhyme_text_from_plan(plan: ProductionPlan) -> str:
     return "\n".join(segment.text for segment in plan.lyric_segments) + "\n"

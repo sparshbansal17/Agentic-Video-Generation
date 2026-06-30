@@ -14,7 +14,7 @@ from storymem_agentic.planner import PromptPlannerAgent, build_production_plan
 from storymem_agentic.orchestrator import run_workflow
 from storymem_agentic.review_agents import _normalize_model_report
 from storymem_agentic.schemas import EvaluationReport, NurseryRhymeInput, ReviewerReport, RevisionPlan
-from storymem_agentic.story_writer import story_from_plan
+from storymem_agentic.story_writer import story_from_plan, storymem_script_from_plan
 
 
 class AgenticArchitectureTests(unittest.TestCase):
@@ -60,6 +60,22 @@ class AgenticArchitectureTests(unittest.TestCase):
         self.assertIn("first_frame_prompt", first)
         self.assertIn("cut", first)
         self.assertEqual(first["subtitle_text"], "Twinkle, twinkle, little star,")
+
+    def test_storymem_script_matches_parent_storymem_schema(self):
+        script = storymem_script_from_plan(self._plan())
+        self.assertEqual(set(script), {"story_overview", "scenes"})
+        self.assertEqual(len(script["scenes"]), 3)
+        for index, scene in enumerate(script["scenes"], start=1):
+            self.assertEqual(set(scene), {"scene_num", "video_prompts", "cut", "subtitle_text"})
+            self.assertEqual(scene["scene_num"], index)
+            self.assertEqual(len(scene["video_prompts"]), 1)
+            self.assertEqual(len(scene["cut"]), 1)
+            self.assertLess(len(scene["video_prompts"][0]), 900)
+            self.assertNotIn("first_frame_prompt", scene)
+            self.assertNotIn("agentic_metadata", scene)
+            self.assertNotIn("audio_description", scene)
+            self.assertNotIn("planned_start_seconds", scene)
+        self.assertTrue(script["scenes"][0]["cut"][0])
 
     def test_evaluator_flags_missing_media_and_feedback_targets_scenes(self):
         plan = self._plan()
@@ -712,14 +728,18 @@ class AgenticArchitectureTests(unittest.TestCase):
             iteration = out / "iterations" / "001"
             commands = json.loads((iteration / "storymem_commands.json").read_text(encoding="utf-8"))["commands"]
             self.assertTrue(any("story_t2v_first_shot.json" in value for value in commands[0]))
-            self.assertTrue(any(value.endswith("story.json") for value in commands[1]))
+            self.assertTrue(any(value.endswith("storymem_story.json") for value in commands[1]))
             self.assertIn("--t2v_first_shot", commands[0])
             self.assertNotIn("--mi2v", commands[0])
             self.assertIn("--mi2v", commands[1])
             first_story = json.loads((iteration / "story_t2v_first_shot.json").read_text(encoding="utf-8"))
+            storymem_story = json.loads((iteration / "storymem_story.json").read_text(encoding="utf-8"))
             full_story = json.loads((iteration / "story.json").read_text(encoding="utf-8"))
             self.assertEqual(len(first_story["scenes"]), 1)
+            self.assertGreater(len(storymem_story["scenes"]), 1)
             self.assertGreater(len(full_story["scenes"]), 1)
+            self.assertNotIn("first_frame_prompt", storymem_story["scenes"][0])
+            self.assertIn("first_frame_prompt", full_story["scenes"][0])
 
     def test_first_shot_keyframe_fallback_uses_last_frame(self) -> None:
         from storymem_agentic.orchestrator import ensure_first_shot_memory_keyframe
