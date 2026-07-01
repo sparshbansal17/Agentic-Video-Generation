@@ -214,6 +214,18 @@ def run_audio_postprocess(
         music_backend=music_backend,
         nested_audio_dir=True,
     )
+    command_templates = {
+        "ace_step_cmd": ace_step_cmd,
+        "vocal_cmd": vocal_cmd,
+        "backing_cmd": backing_cmd,
+        "musicgen_cmd": musicgen_cmd,
+        "song_cmd": song_cmd,
+    }
+    fake_backend_templates = {
+        name: template
+        for name, template in command_templates.items()
+        if template and "fake_audio_backend.py" in template
+    }
 
     media_output: Path | None = None
     if not dry_run:
@@ -261,6 +273,8 @@ def run_audio_postprocess(
             "media_audio_mode": media_audio_mode,
             "voice_ref_audio": voice_ref_audio,
             "has_voice_ref_text": bool((voice_ref_text or "").strip()),
+            "uses_fake_audio_backend": bool(fake_backend_templates),
+            "fake_backend_templates": sorted(fake_backend_templates),
         },
         "stages": [
             asdict(
@@ -279,7 +293,11 @@ def run_audio_postprocess(
                     name="audio_render_and_mux",
                     status="skipped" if dry_run else "complete",
                     outputs=[str(media_output)] if media_output else [],
-                    notes="Uses story_audio media backend after agentic timing and backend manifests are written.",
+                    notes=(
+                        "Smoke-test tone audio from scripts/fake_audio_backend.py; not a real lyric vocal model."
+                        if fake_backend_templates
+                        else "Uses story_audio media backend after agentic timing and backend manifests are written."
+                    ),
                 )
             ),
             asdict(

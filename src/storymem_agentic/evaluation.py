@@ -11,12 +11,21 @@ from .schemas import AudioPlan
 def evaluate_alignment(plan: AudioPlan, aligned_words: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     expected = "\n".join(plan.lyrics)
     actual = transcript_from_words(aligned_words or [])
-    wer = word_error_rate(expected, actual) if actual else None
+    has_expected = bool(expected.strip())
+    has_observed = bool(actual.strip())
+    wer = word_error_rate(expected, actual) if has_observed else None
+    passes_wer = has_observed and (wer is not None and wer <= 0.08)
+    failure_reasons: list[str] = []
+    if has_expected and not has_observed:
+        failure_reasons.append("missing_observed_lyrics")
+    elif not passes_wer:
+        failure_reasons.append("wer_above_threshold")
     return {
         "expected_text": expected,
         "observed_text": actual,
         "word_error_rate": wer,
-        "passes_wer": wer is None or wer <= 0.08,
+        "passes_wer": passes_wer,
+        "failure_reasons": failure_reasons,
     }
 
 
