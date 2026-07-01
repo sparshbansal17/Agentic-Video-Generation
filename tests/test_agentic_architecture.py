@@ -11,7 +11,7 @@ from storymem_agentic.agents import MockAgentBackend
 from storymem_agentic.feedback import apply_revision_plan, build_revision_plan
 from storymem_agentic.media_evaluator import evaluate_iteration
 from storymem_agentic.planner import PromptPlannerAgent, build_production_plan
-from storymem_agentic.orchestrator import run_workflow
+from storymem_agentic.orchestrator import default_storymem_dir, run_workflow
 from storymem_agentic.review_agents import _normalize_model_report
 from storymem_agentic.schemas import EvaluationReport, NurseryRhymeInput, ReviewerReport, RevisionPlan
 from storymem_agentic.story_writer import story_from_plan, storymem_script_from_plan
@@ -76,6 +76,12 @@ class AgenticArchitectureTests(unittest.TestCase):
             self.assertNotIn("audio_description", scene)
             self.assertNotIn("planned_start_seconds", scene)
         self.assertTrue(script["scenes"][0]["cut"][0])
+
+    def test_default_storymem_dir_uses_in_repo_runtime(self):
+        root = default_storymem_dir()
+        self.assertTrue((root / "pipeline.py").exists())
+        self.assertTrue((root / "wan").is_dir())
+        self.assertTrue((root / "extract_keyframes.py").exists())
 
     def test_evaluator_flags_missing_media_and_feedback_targets_scenes(self):
         plan = self._plan()
@@ -787,6 +793,23 @@ class AgenticArchitectureTests(unittest.TestCase):
         self.assertTrue(Path(first[first.index("--output_dir") + 1]).is_absolute())
         self.assertTrue(Path(first[first.index("--t2v_model_path") + 1]).is_absolute())
         self.assertIn("--t5_cpu", first)
+
+    def test_storymem_commands_default_to_in_repo_pipeline_runtime(self) -> None:
+        from storymem_agentic.orchestrator import build_storymem_commands
+
+        commands = build_storymem_commands(
+            story_json=Path("relative/out/iterations/001/storymem_story.json"),
+            first_shot_story_json=Path("relative/out/iterations/001/story_t2v_first_shot.json"),
+            output_dir=Path("relative/out/iterations/001/generated"),
+            storymem_dir=None,
+            t2v_model_path=Path("models/t2v"),
+            i2v_model_path=Path("models/i2v"),
+            lora_weight_path=Path("models/lora"),
+            nproc_per_node=4,
+        )
+
+        self.assertEqual(commands[0][commands[0].index("pipeline.py")], "pipeline.py")
+        self.assertTrue((default_storymem_dir() / "pipeline.py").exists())
 
     def test_storymem_commands_expose_speed_options(self) -> None:
         from storymem_agentic.orchestrator import build_storymem_commands

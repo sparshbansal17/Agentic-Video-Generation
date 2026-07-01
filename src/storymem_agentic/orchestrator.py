@@ -21,6 +21,28 @@ from .schemas import EvaluationReport, NurseryRhymeInput, ProductionPlan, Revisi
 from .story_writer import rhyme_text_from_plan, story_from_plan, storymem_script_from_plan
 
 
+REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+def default_storymem_dir() -> Path:
+    return REPO_ROOT
+
+
+def storymem_dir_path(storymem_dir: str | Path | None) -> Path:
+    return Path(storymem_dir).expanduser().resolve() if storymem_dir else default_storymem_dir().resolve()
+
+
+def resolve_storymem_dir(storymem_dir: str | Path | None) -> Path:
+    resolved = storymem_dir_path(storymem_dir)
+    required = [resolved / "pipeline.py", resolved / "wan", resolved / "extract_keyframes.py"]
+    missing = [str(path) for path in required if not path.exists()]
+    if missing:
+        raise FileNotFoundError(
+            "StoryMem runtime directory is missing required in-repo files: " + ", ".join(missing)
+        )
+    return resolved
+
+
 def write_json(path: Path, payload: dict[str, Any]) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
@@ -166,6 +188,7 @@ def build_storymem_commands(
     frame_num: int | None = None,
     keyframe_mode: str = "hps",
 ) -> list[list[str]]:
+    storymem_dir = storymem_dir_path(storymem_dir)
     story_json = story_json.resolve()
     first_shot_story_json = first_shot_story_json.resolve() if first_shot_story_json else None
     output_dir = output_dir.resolve()
@@ -238,6 +261,7 @@ def build_storymem_continuation_command(
     frame_num: int | None = None,
     keyframe_mode: str = "hps",
 ) -> list[str]:
+    storymem_dir = storymem_dir_path(storymem_dir)
     story_json = story_json.resolve()
     output_dir = output_dir.resolve()
     t2v_model_path = Path(t2v_model_path).resolve()
@@ -516,6 +540,12 @@ def run_workflow(
     reuse_generated_video_dir: Path | None = None
     visual_regeneration_start_scene: int | None = None
     current_media_audio_mode = media_audio_mode
+    if execute_video:
+        active_storymem_dir = resolve_storymem_dir(storymem_dir)
+    elif storymem_dir or (t2v_model_path and i2v_model_path and lora_weight_path):
+        active_storymem_dir = storymem_dir_path(storymem_dir)
+    else:
+        active_storymem_dir = None
 
     for iteration in range(1, iteration_count + 1):
         cached_paths = existing_iteration_paths(root, iteration)
@@ -563,7 +593,7 @@ def run_workflow(
         if mode in {"generate", "iterate"}:
             if reuse_generated_video_dir is not None:
                 shutil.copytree(reuse_generated_video_dir, latest_paths["generated_dir"], dirs_exist_ok=True)
-                if visual_regeneration_start_scene is not None and storymem_dir and t2v_model_path and i2v_model_path and lora_weight_path:
+                if visual_regeneration_start_scene is not None and active_storymem_dir and t2v_model_path and i2v_model_path and lora_weight_path:
                     targeted_story = write_targeted_story_json(
                         _storymem_story_path(latest_paths),
                         latest_paths["iteration_dir"] / f"story_from_scene_{visual_regeneration_start_scene:02d}.json",
@@ -573,7 +603,7 @@ def run_workflow(
                         build_storymem_continuation_command(
                             story_json=targeted_story,
                             output_dir=latest_paths["generated_dir"],
-                            storymem_dir=storymem_dir,
+                            storymem_dir=active_storymem_dir,
                             t2v_model_path=t2v_model_path,
                             i2v_model_path=i2v_model_path,
                             lora_weight_path=lora_weight_path,
@@ -597,7 +627,7 @@ def run_workflow(
                         },
                     )
                     if execute_video:
-                        run_storymem_commands(commands, cwd=storymem_dir)
+                        run_storymem_commands(commands, cwd=active_storymem_dir)
                 else:
                     write_json(
                         latest_paths["iteration_dir"] / "storymem_commands.json",
@@ -606,12 +636,12 @@ def run_workflow(
                             "notes": f"reused accepted video artifacts from {reuse_generated_video_dir} for audio-only revision",
                         },
                     )
-            elif storymem_dir and t2v_model_path and i2v_model_path and lora_weight_path:
+            elif active_storymem_dir and t2v_model_path and i2v_model_path and lora_weight_path:
                 commands = build_storymem_commands(
                     story_json=_storymem_story_path(latest_paths),
                     first_shot_story_json=latest_paths["story_t2v_first_shot"],
                     output_dir=latest_paths["generated_dir"],
-                    storymem_dir=storymem_dir,
+                    storymem_dir=active_storymem_dir,
                     t2v_model_path=t2v_model_path,
                     i2v_model_path=i2v_model_path,
                     lora_weight_path=lora_weight_path,
@@ -625,7 +655,7 @@ def run_workflow(
                 )
                 write_json(latest_paths["iteration_dir"] / "storymem_commands.json", {"commands": commands})
                 if execute_video:
-                    run_storymem_commands(commands, cwd=storymem_dir)
+                    run_storymem_commands(commands, cwd=active_storymem_dir)
             else:
                 write_json(
                     latest_paths["iteration_dir"] / "storymem_commands.json",
