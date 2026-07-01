@@ -1,3 +1,4 @@
+from hpsv3 import HPSv3RewardInferencer
 import os
 import time
 import glob
@@ -252,7 +253,6 @@ def read_video(
 def save_keyframes(video_path, frame_sim_thereshold = MIN_FRAME_SIMILARITY, frame_sim_func = get_frame_sim_clip, memory_cmp = True):
     st = time.time()
     frames, timestamps = read_video(video_path)
-    from hpsv3 import HPSv3RewardInferencer
     quality_model = HPSv3RewardInferencer(device="cuda")
     while True:
         keyframe_indices = extract_keyframe_indices(frames, quality_model, frame_sim_thereshold, frame_sim_func)
@@ -296,39 +296,6 @@ def save_keyframes(video_path, frame_sim_thereshold = MIN_FRAME_SIMILARITY, fram
     fourcc = cv2.VideoWriter_fourcc(*"mp4v")
     fps = 5
     writer = cv2.VideoWriter(motion_frames_path, fourcc, fps, (w, h))
-    for frame in last_frames:
-        frame = frame.permute(1, 2, 0).numpy()
-        frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
-        writer.write(frame)
-    writer.release()
-
-def save_keyframes_simple(video_path, max_keyframes = MAX_KEYFRAME_NUM):
-    st = time.time()
-    frames, _ = read_video(video_path)
-    if frames.numel() == 0:
-        raise ValueError(f"No frames found in {video_path}")
-
-    keyframe_count = min(max_keyframes, frames.shape[0])
-    if keyframe_count <= 1:
-        keyframe_indices = [0]
-    else:
-        keyframe_indices = torch.linspace(0, frames.shape[0] - 1, keyframe_count).round().long().tolist()
-
-    logger.info(f"Read video with simple keyframes: video_path={video_path!r}, keyframe_indices={keyframe_indices}, time={time.time() - st:.3f}s")
-    for i, index in enumerate(keyframe_indices):
-        keyframe = frames[index].permute(1, 2, 0).numpy()
-        keyframe = cv2.cvtColor(keyframe, cv2.COLOR_RGB2BGR)
-        cv2.imwrite(video_path.replace(".mp4", f"_keyframe{i}.jpg"), keyframe)
-
-    last_frame = frames[-1].permute(1, 2, 0).numpy()
-    last_frame = cv2.cvtColor(last_frame, cv2.COLOR_RGB2BGR)
-    cv2.imwrite(os.path.join(os.path.dirname(video_path), "last_frame.jpg"), last_frame)
-
-    last_frames = frames[-5:]
-    motion_frames_path = os.path.join(os.path.dirname(video_path), "motion_frames.mp4")
-    _, c, h, w = last_frames.shape
-    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-    writer = cv2.VideoWriter(motion_frames_path, fourcc, 5, (w, h))
     for frame in last_frames:
         frame = frame.permute(1, 2, 0).numpy()
         frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)

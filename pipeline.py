@@ -6,7 +6,6 @@ import json5
 import argparse
 import subprocess
 import logging
-import shutil
 import torch
 import torch.distributed as dist
 import multiprocessing as mp
@@ -17,7 +16,7 @@ from wan.configs import MAX_AREA_CONFIGS, SIZE_CONFIGS, SUPPORTED_SIZES, WAN_CON
 from wan.distributed.util import init_distributed_group
 from wan.utils.prompt_extend import DashScopePromptExpander, QwenPromptExpander
 from wan.utils.utils import save_video, str2bool
-from extract_keyframes import save_keyframes, save_keyframes_simple
+from extract_keyframes import save_keyframes
 
 
 def _parse_args():
@@ -47,26 +46,9 @@ def _parse_args():
     parser.add_argument("--mi2v", action="store_true", help="Whether to start from last frame of last video shot with MI2V")
     parser.add_argument("--mm2v", action="store_true", help="Whether to start from last frame of last video shot with MM2V")
     parser.add_argument("--fix", type=int, default=3, help="Whether to fix the first n keyframes.")
-    parser.add_argument("--keyframe_mode", type=str, default="hps", choices=["hps", "simple", "off"], help="Keyframe extraction mode after each generated shot.")
     parser.add_argument("--finetune_checkpoint_dir", type=str, default=None, help="The path to the finetune checkpoint.")
     parser.add_argument("--lora_weight_path", type=str, default=None, help="The path to the LoRA weight.")
     parser.add_argument("--lora_rank", type=int, default=None, help="The rank of LoRA weight.")
-    parser.add_argument("--enable_audio", action="store_true", help="Generate nursery-rhyme lyrics, music, and vocals after video concat.")
-    parser.add_argument("--audio_mode", type=str, default="full_song", choices=["full_song", "separate_stems", "scene_lyrics_mix"])
-    parser.add_argument("--vocal_backend", type=str, default="ace_step")
-    parser.add_argument("--backing_backend", type=str, default="ace_step", choices=["ace_step", "musicgen"])
-    parser.add_argument("--audio_voice_style", type=str, default="gentle adult lullaby")
-    parser.add_argument("--audio_output_suffix", type=str, default="_with_music")
-    parser.add_argument("--audio_skip_on_error", action="store_true")
-    parser.add_argument("--audio_dry_run", action="store_true")
-    parser.add_argument("--lyrics_model", type=str, default=None)
-    parser.add_argument("--lyrics_file", type=str, default=None)
-    parser.add_argument("--disable_subtitles", action="store_true", help="Do not burn subtitle_text fields from the story JSON into the final video.")
-    parser.add_argument("--ace_step_cmd", type=str, default=None)
-    parser.add_argument("--vocal_cmd", type=str, default=None)
-    parser.add_argument("--backing_cmd", type=str, default=None)
-    parser.add_argument("--musicgen_cmd", type=str, default=None)
-    parser.add_argument("--ffmpeg_bin", type=str, default=None)
     args = parser.parse_args()
     return args
 
@@ -86,152 +68,6 @@ def _init_logging(rank, log_file):
             level=logging.ERROR,
             handlers=[logging.StreamHandler(stream=sys.stdout)]
         )
-
-
-def _video_duration_seconds(video_path):
-    import cv2
-
-    cap = cv2.VideoCapture(video_path)
-    fps = cap.get(cv2.CAP_PROP_FPS)
-    frames = cap.get(cv2.CAP_PROP_FRAME_COUNT)
-    cap.release()
-    if fps and frames:
-        return float(frames / fps)
-    raise RuntimeError(f"Could not determine video duration for {video_path}")
-
-
-def _ass_time(seconds):
-    centiseconds = int(round(seconds * 100))
-    hours, remainder = divmod(centiseconds, 360000)
-    minutes, remainder = divmod(remainder, 6000)
-    secs, centis = divmod(remainder, 100)
-    return f"{hours}:{minutes:02d}:{secs:02d}.{centis:02d}"
-
-
-def _ass_text(text):
-    return str(text).replace("\\", "\\\\").replace("\n", "\\N")
-
-
-def _subtitles_filter_path(path):
-    return str(path).replace("\\", "\\\\").replace(":", "\\:").replace("'", "\\'")
-
-
-def _write_story_subtitles(story_script, scene_videos, output_dir):
-    subtitle_by_scene = {}
-    for scene in story_script.get("scenes", []):
-        text = scene.get("subtitle_text") or scene.get("subtitle")
-        if text:
-            subtitle_by_scene[int(scene["scene_num"])] = str(text)
-
-    if not subtitle_by_scene:
-        return None
-
-    subtitle_path = os.path.join(output_dir, "subtitles.ass")
-    elapsed = 0.0
-    events = []
-    for video_path in scene_videos:
-        filename = os.path.basename(video_path)
-        try:
-            scene_num = int(filename.split("_", 1)[0])
-        except ValueError:
-            scene_num = None
-        duration = _video_duration_seconds(video_path)
-        text = subtitle_by_scene.get(scene_num)
-        if text:
-            start = elapsed + min(0.25, duration * 0.12)
-            end = elapsed + max(duration - 0.25, duration * 0.88)
-            events.append(
-                f"Dialogue: 0,{_ass_time(start)},{_ass_time(end)},Default,,0,0,0,,{_ass_text(text)}"
-            )
-        elapsed += duration
-
-    if not events:
-        return None
-
-    ass = "\n".join([
-        "[Script Info]",
-        "ScriptType: v4.00+",
-        "PlayResX: 832",
-        "PlayResY: 480",
-        "ScaledBorderAndShadow: yes",
-        "",
-        "[V4+ Styles]",
-        "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
-        "Style: Default,Arial,34,&H00FFFFFF,&H000000FF,&H7A000000,&H66000000,-1,0,0,0,100,100,0,0,1,2,1,2,40,40,34,1",
-        "",
-        "[Events]",
-        "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
-        *events,
-        "",
-    ])
-    with open(subtitle_path, "w", encoding="utf-8") as f:
-        f.write(ass)
-    return subtitle_path
-
-
-def _burn_story_subtitles(ffmpeg_bin, input_video, subtitle_path):
-    output_video = os.path.splitext(input_video)[0] + "_subtitled.mp4"
-    subprocess.run([
-        ffmpeg_bin, "-y",
-        "-i", input_video,
-        "-vf", f"subtitles='{_subtitles_filter_path(subtitle_path)}'",
-        "-c:v", "libx264",
-        "-crf", "18",
-        "-preset", "medium",
-        "-pix_fmt", "yuv420p",
-        "-c:a", "copy",
-        output_video,
-    ], check=True)
-    return output_video
-
-
-def _destroy_distributed():
-    if dist.is_initialized():
-        dist.barrier()
-        dist.destroy_process_group()
-
-
-def _story_scene_video_paths(story_script, output_dir, *, include_first_shot):
-    paths = []
-    for scene in story_script.get("scenes", []):
-        scene_num = int(scene["scene_num"])
-        for i, _prompt in enumerate(scene.get("video_prompts", [])):
-            shot_num = i + 1
-            if (not include_first_shot) and scene_num == 1 and shot_num == 1:
-                continue
-            paths.append(os.path.join(output_dir, f"{scene_num:02d}_{shot_num:02d}.mp4"))
-    return paths
-
-
-def _concat_scene_videos(args, story_script, rank):
-    out = os.path.join(args.output_dir, f"{os.path.basename(args.output_dir)}.mp4")
-    if rank != 0:
-        return out
-    ffmpeg_bin = args.ffmpeg_bin or os.getenv("FFMPEG_BIN") or shutil.which("ffmpeg")
-    if not ffmpeg_bin:
-        raise FileNotFoundError("ffmpeg was not found. Set --ffmpeg_bin or FFMPEG_BIN.")
-    videos = sorted(glob.glob(f"{args.output_dir}/[0-9][0-9]_*.mp4"))
-    if not videos:
-        raise FileNotFoundError(f"No generated scene videos found in {args.output_dir}")
-    list_path = os.path.join(args.output_dir, "concat_list.txt")
-    with open(list_path, "w", encoding="utf-8") as f:
-        for v in videos:
-            f.write(f"file '{os.path.abspath(v)}'\n")
-    ret = subprocess.run(
-        [ffmpeg_bin, "-f", "concat", "-safe", "0", "-i", list_path, "-c", "copy", "-y", out]
-    )
-    if ret.returncode != 0:
-        subprocess.run([
-            ffmpeg_bin, "-f", "concat", "-safe", "0", "-i", list_path,
-            "-c:v", "libx264", "-crf", "18", "-preset", "medium", "-pix_fmt", "yuv420p",
-            "-c:a", "aac", "-b:a", "192k", "-r", "30", "-y", out
-        ], check=True)
-    if not args.disable_subtitles:
-        subtitle_path = _write_story_subtitles(story_script, videos, args.output_dir)
-        if subtitle_path:
-            out = _burn_story_subtitles(ffmpeg_bin, out, subtitle_path)
-            logging.info(f"Subtitle stage output: {out}")
-    return out
 
 def main(args):
     ###### Init ######
@@ -274,12 +110,6 @@ def main(args):
 
     ###### Generate first-shot videos ######
     if args.t2v_first_shot:
-        first_shot_path = f"{args.output_dir}/01_01.mp4"
-        if os.path.exists(first_shot_path):
-            logging.info(f"Skipping T2V first shot because output already exists: {first_shot_path}")
-            _destroy_distributed()
-            return
-
         t2v_config = WAN_CONFIGS["t2v-A14B"]
 
         logging.info("Loading T2V model...")
@@ -322,10 +152,10 @@ def main(args):
         video = t2v_model.generate(
             prompt,
             size=SIZE_CONFIGS[args.size],
-            frame_num=args.frame_num or t2v_config.frame_num,
+            frame_num=t2v_config.frame_num,
             shift=t2v_config.sample_shift,
             sample_solver=args.sample_solver,
-            sampling_steps=args.sample_steps or t2v_config.sample_steps,
+            sampling_steps=t2v_config.sample_steps,
             guide_scale=args.sample_guide_scale,
             seed=args.seed,
             offload_model=args.offload_model
@@ -340,10 +170,7 @@ def main(args):
                 normalize=True,
                 value_range=(-1, 1)
             )
-            if args.keyframe_mode == "hps":
-                save_keyframes(f"{args.output_dir}/01_01.mp4")
-            elif args.keyframe_mode == "simple":
-                save_keyframes_simple(f"{args.output_dir}/01_01.mp4")
+            save_keyframes(f"{args.output_dir}/01_01.mp4")
             del video
             torch.cuda.empty_cache()
 
@@ -354,21 +181,12 @@ def main(args):
         torch.cuda.ipc_collect()
 
         torch.cuda.synchronize()
-        _destroy_distributed()
+        if dist.is_initialized():
+            dist.barrier()
+            dist.destroy_process_group()
         return
 
     ###### Generate next-shot videos ######
-    expected_scene_videos = _story_scene_video_paths(
-        story_script,
-        args.output_dir,
-        include_first_shot=bool(args.m2v_first_shot),
-    )
-    if expected_scene_videos and all(os.path.exists(path) for path in expected_scene_videos):
-        logging.info("Skipping M2V generation because all requested scene clips already exist.")
-        _concat_scene_videos(args, story_script, rank)
-        _destroy_distributed()
-        return
-
     m2v_config = WAN_CONFIGS["m2v-A14B"]
     if args.lora_weight_path is not None:
         m2v_config.low_noise_lora.weight = os.path.join(args.lora_weight_path, "backbone_low_noise.safetensors")
@@ -398,10 +216,6 @@ def main(args):
         for i, prompt in enumerate(scene["video_prompts"]):
             shot_num = i + 1
             if (not args.m2v_first_shot) and scene_num == 1 and shot_num == 1:
-                continue
-            output_video_path = f"{args.output_dir}/{scene_num:02d}_{shot_num:02d}.mp4"
-            if os.path.exists(output_video_path):
-                logging.info(f"Skipping existing Scene {scene_num} / Shot {shot_num}: {output_video_path}")
                 continue
             logging.info(f"Generating Scene {scene_num} / Shot {shot_num}: {prompt}")
 
@@ -449,10 +263,10 @@ def main(args):
                 first_frame_file=first_frame_file,
                 motion_frames_file=motion_frames_file,
                 max_area=MAX_AREA_CONFIGS[args.size],
-                frame_num=args.frame_num or m2v_config.frame_num,
+                frame_num=m2v_config.frame_num,
                 shift=m2v_config.sample_shift,
                 sample_solver=args.sample_solver,
-                sampling_steps=args.sample_steps or m2v_config.sample_steps,
+                sampling_steps=m2v_config.sample_steps,
                 guide_scale=args.sample_guide_scale,
                 seed=args.seed+i,
                 offload_model=args.offload_model
@@ -465,67 +279,39 @@ def main(args):
                     video = video[:, 5:]
                 save_video(
                     tensor=video[None],
-                    save_file=output_video_path,
+                    save_file=f"{args.output_dir}/{scene_num:02d}_{shot_num:02d}.mp4",
                     fps=m2v_config.sample_fps,
                     nrow=1,
                     normalize=True,
                     value_range=(-1, 1)
                 )
-                if args.keyframe_mode == "hps":
-                    save_keyframes(output_video_path)
-                elif args.keyframe_mode == "simple":
-                    save_keyframes_simple(output_video_path)
+                save_keyframes(f"{args.output_dir}/{scene_num:02d}_{shot_num:02d}.mp4")
                 del video
                 torch.cuda.empty_cache()
 
             if dist.is_initialized():
                 dist.barrier()
     
-    out = _concat_scene_videos(args, story_script, rank)
-
-    if dist.is_initialized():
-        dist.barrier()
-
-    del m2v_model
-    gc.collect()
-    torch.cuda.empty_cache()
-    torch.cuda.ipc_collect()
+    videos = sorted(glob.glob(f"{args.output_dir}/*.mp4"))
+    list_path = os.path.join(args.output_dir, "concat_list.txt")
+    with open(list_path, "w", encoding="utf-8") as f:
+        for v in videos:
+            f.write(f"file '{os.path.abspath(v)}'\n")
+    out = os.path.join(args.output_dir, f"{os.path.basename(args.output_dir)}.mp4")
+    ret = subprocess.run(
+        ["ffmpeg", "-f", "concat", "-safe", "0", "-i", list_path, "-c", "copy", "-y", out]
+    )
+    if ret.returncode != 0:
+        subprocess.run([
+            "ffmpeg", "-f", "concat", "-safe", "0", "-i", list_path,
+            "-c:v", "libx264", "-crf", "18", "-preset", "medium", "-pix_fmt", "yuv420p",
+            "-c:a", "aac", "-b:a", "192k", "-r", "30", "-y", out
+        ], check=True)
 
     torch.cuda.synchronize()
     if dist.is_initialized():
+        dist.barrier()
         dist.destroy_process_group()
-
-    if rank == 0 and args.enable_audio:
-        from story_audio import AudioConfig, generate_audio_for_story
-
-        audio_config = AudioConfig(
-            story_script_path=args.story_script_path,
-            output_dir=args.output_dir,
-            final_video=out,
-            audio_mode=args.audio_mode,
-            vocal_backend=args.vocal_backend,
-            backing_backend=args.backing_backend,
-            audio_voice_style=args.audio_voice_style,
-            audio_output_suffix=args.audio_output_suffix,
-            audio_skip_on_error=args.audio_skip_on_error,
-            audio_dry_run=args.audio_dry_run,
-            lyrics_model=args.lyrics_model,
-            lyrics_file=args.lyrics_file,
-            ace_step_cmd=args.ace_step_cmd,
-            vocal_cmd=args.vocal_cmd,
-            backing_cmd=args.backing_cmd,
-            musicgen_cmd=args.musicgen_cmd,
-            ffmpeg_bin=args.ffmpeg_bin,
-            seed=args.seed,
-        )
-        try:
-            audio_output = generate_audio_for_story(audio_config)
-            logging.info(f"Audio stage output: {audio_output}")
-        except Exception as exc:
-            if args.audio_skip_on_error:
-                logging.warning(f"Skipping audio stage after error: {exc}")
-            else:
-                raise
     logging.info("Finished.")
 
 if __name__ == "__main__":
