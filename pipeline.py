@@ -29,6 +29,7 @@ def _parse_args():
     parser.add_argument("--input_dir", type=str, default="./input")
     parser.add_argument("--output_dir", type=str, default="./results")
     parser.add_argument("--log_file", type=str, default="./log.txt")
+    parser.add_argument("--ffmpeg_bin", type=str, default="ffmpeg")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--ulysses_size", type=int, default=1, help="The size of the ulysses parallelism in DiT.")
     parser.add_argument("--t5_fsdp", action="store_true", default=False, help="Whether to use FSDP for T5.")
@@ -299,11 +300,11 @@ def main(args):
             f.write(f"file '{os.path.abspath(v)}'\n")
     out = os.path.join(args.output_dir, f"{os.path.basename(args.output_dir)}.mp4")
     ret = subprocess.run(
-        ["ffmpeg", "-f", "concat", "-safe", "0", "-i", list_path, "-c", "copy", "-y", out]
+        [args.ffmpeg_bin, "-f", "concat", "-safe", "0", "-i", list_path, "-c", "copy", "-y", out]
     )
     if ret.returncode != 0:
         subprocess.run([
-            "ffmpeg", "-f", "concat", "-safe", "0", "-i", list_path,
+            args.ffmpeg_bin, "-f", "concat", "-safe", "0", "-i", list_path,
             "-c:v", "libx264", "-crf", "18", "-preset", "medium", "-pix_fmt", "yuv420p",
             "-c:a", "aac", "-b:a", "192k", "-r", "30", "-y", out
         ], check=True)
