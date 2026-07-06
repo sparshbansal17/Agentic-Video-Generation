@@ -442,6 +442,14 @@ def _alignment_rank(alignment: dict[str, Any] | None) -> tuple[int, float, int]:
     )
 
 
+def _bounded_candidate_count(*counts: int) -> int:
+    return max(1, min(max(1, int(count)) for count in counts))
+
+
+def _retry_seed_offsets(candidate_count: int, seed_offsets: list[int]) -> list[int]:
+    return seed_offsets[: max(0, candidate_count - 1)]
+
+
 def run_workflow(
     *,
     rhyme_file: str | Path | None = None,
@@ -490,6 +498,10 @@ def run_workflow(
     song_cmd: str | None = None,
     voice_ref_audio: str | None = None,
     voice_ref_text: str | None = None,
+    allow_scene_mix_debug: bool = False,
+    full_song_candidate_count: int = 4,
+    voice_candidate_count: int = 4,
+    music_candidate_count: int = 1,
 ) -> dict[str, Any]:
     root = Path(output_dir)
     root.mkdir(parents=True, exist_ok=True)
@@ -748,21 +760,86 @@ def run_workflow(
             and whisperx_alignment_path.exists()
         ):
             full_song_alignment = analyze_whisperx_for_plan(plan, whisperx_alignment_path)
+            if _needs_scene_lyrics_audio_fallback(full_song_alignment) and full_song_candidate_count > 1:
+                attempts_dir = latest_paths["iteration_dir"] / "full_song_audio_candidates"
+                attempts_dir.mkdir(parents=True, exist_ok=True)
+                best_alignment = full_song_alignment
+                best_rank = _alignment_rank(full_song_alignment)
+                best_media = attempts_dir / "candidate_00.mp4"
+                best_json = attempts_dir / "candidate_00_whisperx_alignment.json"
+                shutil.copy2(final_candidate, best_media)
+                shutil.copy2(whisperx_alignment_path, best_json)
+                candidate_records = [
+                    {
+                        "candidate": 0,
+                        "seed_offset": 0,
+                        "alignment": full_song_alignment,
+                        "media_output": str(best_media),
+                    }
+                ]
+                for candidate, retry_seed_offset in enumerate([1601, 3203, 4801, 6407, 8009], start=1):
+                    if candidate >= full_song_candidate_count:
+                        break
+                    shutil.rmtree(latest_paths["generated_dir"] / "audio", ignore_errors=True)
+                    retry_audio_result = render_audio_candidate("full_song", seed_offset=retry_seed_offset)
+                    if retry_audio_result.get("media_output"):
+                        final_candidate = Path(str(retry_audio_result["media_output"]))
+                    run_audio_alignment(final_candidate, f"whisperx_full_song_candidate_{candidate:02d}")
+                    if not whisperx_alignment_path.exists():
+                        continue
+                    retry_alignment = analyze_whisperx_for_plan(plan, whisperx_alignment_path)
+                    media_copy = attempts_dir / f"candidate_{candidate:02d}.mp4"
+                    json_copy = attempts_dir / f"candidate_{candidate:02d}_whisperx_alignment.json"
+                    shutil.copy2(final_candidate, media_copy)
+                    shutil.copy2(whisperx_alignment_path, json_copy)
+                    candidate_records.append(
+                        {
+                            "candidate": candidate,
+                            "seed_offset": retry_seed_offset,
+                            "alignment": retry_alignment,
+                            "media_output": str(media_copy),
+                        }
+                    )
+                    retry_rank = _alignment_rank(retry_alignment)
+                    if retry_rank < best_rank:
+                        best_rank = retry_rank
+                        best_alignment = retry_alignment
+                        best_media = media_copy
+                        best_json = json_copy
+                        audio_result = retry_audio_result
+                    if retry_alignment.get("passed"):
+                        break
+                if best_media.exists():
+                    shutil.copy2(best_media, final_candidate)
+                if best_json.exists():
+                    shutil.copy2(best_json, whisperx_alignment_path)
+                full_song_alignment = best_alignment
+                audio_result["full_song_candidate_attempts"] = candidate_records
+                audio_result["selected_full_song_alignment"] = best_alignment
+                audio_result["selected_full_song_media"] = str(best_media)
+                audio_result["candidate_policy"] = {
+                    "full_song": full_song_candidate_count,
+                    "voice": voice_candidate_count,
+                    "music": music_candidate_count,
+                }
+                write_json(latest_paths["iteration_dir"] / "audio_postprocess_result.json", audio_result)
             if _needs_scene_lyrics_audio_fallback(full_song_alignment):
                 fallback_record = {
                     "reason": "full_song_whisperx_timing_failure",
                     "full_song_alignment": full_song_alignment,
                     "previous_audio_postprocess": audio_result,
+                    "allow_scene_mix_debug": allow_scene_mix_debug,
                 }
                 write_json(latest_paths["iteration_dir"] / "full_song_audio_fallback.json", fallback_record)
                 write_json(latest_paths["iteration_dir"] / "whisperx_full_song_alignment.json", full_song_alignment)
-                current_media_audio_mode = "hybrid_voice_bed" if media_audio_mode == "hybrid_voice_bed" else "scene_lyrics_mix"
-                audio_result = render_audio_candidate(current_media_audio_mode, seed_offset=503)
-                if audio_result.get("media_output"):
-                    final_candidate = Path(str(audio_result["media_output"]))
-                audio_result["fallback_from_full_song"] = fallback_record
-                write_json(latest_paths["iteration_dir"] / "audio_postprocess_result.json", audio_result)
-                run_audio_alignment(final_candidate, "whisperx_scene_lyrics_mix")
+                if allow_scene_mix_debug:
+                    current_media_audio_mode = "hybrid_voice_bed" if media_audio_mode == "hybrid_voice_bed" else "scene_lyrics_mix"
+                    audio_result = render_audio_candidate(current_media_audio_mode, seed_offset=503)
+                    if audio_result.get("media_output"):
+                        final_candidate = Path(str(audio_result["media_output"]))
+                    audio_result["fallback_from_full_song"] = fallback_record
+                    write_json(latest_paths["iteration_dir"] / "audio_postprocess_result.json", audio_result)
+                    run_audio_alignment(final_candidate, "whisperx_scene_lyrics_mix")
 
         if (
             mode in {"generate", "iterate"}
@@ -790,7 +867,9 @@ def run_workflow(
                 }
             ]
             if _needs_scene_lyrics_audio_fallback(best_alignment):
-                for attempt, retry_seed_offset in enumerate([1601, 3203, 4801, 6407], start=1):
+                scene_candidate_count = _bounded_candidate_count(voice_candidate_count, music_candidate_count)
+                retry_seed_offsets = _retry_seed_offsets(scene_candidate_count, [1601, 3203, 4801, 6407])
+                for attempt, retry_seed_offset in enumerate(retry_seed_offsets, start=1):
                     shutil.rmtree(latest_paths["generated_dir"] / "audio", ignore_errors=True)
                     retry_audio_result = render_audio_candidate(current_media_audio_mode, seed_offset=retry_seed_offset)
                     if retry_audio_result.get("media_output"):
@@ -827,6 +906,12 @@ def run_workflow(
                 audio_result["scene_lyrics_retry_attempts"] = retry_records
                 audio_result["selected_scene_lyrics_alignment"] = best_alignment
                 audio_result["selected_scene_lyrics_media"] = str(best_media)
+                audio_result["candidate_policy"] = {
+                    "full_song": full_song_candidate_count,
+                    "voice": voice_candidate_count,
+                    "music": music_candidate_count,
+                    "scene_retry_candidate_limit": scene_candidate_count,
+                }
                 write_json(latest_paths["iteration_dir"] / "audio_postprocess_result.json", audio_result)
         latest_final_candidate = final_candidate
 
@@ -880,7 +965,11 @@ def run_workflow(
         elif revision.regenerate_audio:
             reuse_generated_video_dir = latest_paths["generated_dir"]
             visual_regeneration_start_scene = None
-            if current_media_audio_mode == "full_song" and _is_whisperx_timing_failure(latest_report):
+            if (
+                allow_scene_mix_debug
+                and current_media_audio_mode == "full_song"
+                and _is_whisperx_timing_failure(latest_report)
+            ):
                 current_media_audio_mode = "hybrid_voice_bed" if media_audio_mode == "hybrid_voice_bed" else "scene_lyrics_mix"
         else:
             reuse_generated_video_dir = None

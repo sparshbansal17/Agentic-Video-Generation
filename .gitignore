@@ -17,6 +17,7 @@ __pycache__/
 # Heavy local assets
 models/
 audio_tools/
+configs/audio/local.yaml
 results*/
 logs/
 log.txt

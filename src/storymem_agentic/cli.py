@@ -125,6 +125,10 @@ def workflow(args: argparse.Namespace) -> int:
         song_cmd=args.song_cmd,
         voice_ref_audio=args.voice_ref_audio,
         voice_ref_text=args.voice_ref_text,
+        allow_scene_mix_debug=args.allow_scene_mix_debug,
+        full_song_candidate_count=args.full_song_candidates,
+        voice_candidate_count=args.voice_candidates,
+        music_candidate_count=args.music_candidates,
     )
     print(result["latest_iteration"])
     return 0 if result["passed"] or args.workflow_mode in {"dry_run", "generate"} else 3
@@ -215,6 +219,10 @@ def build_parser() -> argparse.ArgumentParser:
         command.add_argument("--song-cmd")
         command.add_argument("--voice-ref-audio")
         command.add_argument("--voice-ref-text")
+        command.add_argument("--allow-scene-mix-debug", action="store_true")
+        command.add_argument("--full-song-candidates", type=int, default=4)
+        command.add_argument("--voice-candidates", type=int, default=4)
+        command.add_argument("--music-candidates", type=int, default=1)
         command.add_argument("--storymem-dir")
         command.add_argument("--t2v-model-path")
         command.add_argument("--i2v-model-path")

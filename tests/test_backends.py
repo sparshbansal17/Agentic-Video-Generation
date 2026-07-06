@@ -5,6 +5,7 @@ from tempfile import TemporaryDirectory
 from story_audio import AudioConfig, _render_command, _validate_voice_reference
 from storymem_agentic.backends import default_backends
 from storymem_agentic.cli import build_parser
+from storymem_agentic.orchestrator import _bounded_candidate_count, _retry_seed_offsets
 
 
 class BackendTests(unittest.TestCase):
@@ -86,6 +87,9 @@ class BackendTests(unittest.TestCase):
                 "/tmp/ref.wav",
                 "--voice-ref-text",
                 "soft reference voice",
+                "--allow-scene-mix-debug",
+                "--full-song-candidates",
+                "3",
             ]
         )
 
@@ -93,6 +97,15 @@ class BackendTests(unittest.TestCase):
         self.assertEqual(args.voice_backend, "f5_tts")
         self.assertEqual(args.music_backend, "stable_audio")
         self.assertEqual(args.voice_ref_text, "soft reference voice")
+        self.assertTrue(args.allow_scene_mix_debug)
+        self.assertEqual(args.full_song_candidates, 3)
+
+    def test_scene_retry_candidate_limits_count_initial_render(self):
+        self.assertEqual(_bounded_candidate_count(4, 1), 1)
+        self.assertEqual(_bounded_candidate_count(4, 3), 3)
+        self.assertEqual(_bounded_candidate_count(0, 3), 1)
+        self.assertEqual(_retry_seed_offsets(1, [1601, 3203, 4801]), [])
+        self.assertEqual(_retry_seed_offsets(3, [1601, 3203, 4801]), [1601, 3203])
 
 
 if __name__ == "__main__":
