@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 #SBATCH --job-name=audio-backend-smoke
-#SBATCH --partition=gpu
+#SBATCH --partition=ai
+#SBATCH --qos=preemptible
+#SBATCH --account=aarc
 #SBATCH --gres=gpu:1
-#SBATCH --cpus-per-task=8
-#SBATCH --mem=48G
+#SBATCH --cpus-per-task=14
 #SBATCH --time=01:00:00
 #SBATCH --output=logs/audio_backend_smoke_%j.out
 #SBATCH --error=logs/audio_backend_smoke_%j.err
