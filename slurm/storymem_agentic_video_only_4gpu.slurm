@@ -51,6 +51,7 @@ CLIP_COUNT="${CLIP_COUNT:-3}"
 TARGET_DURATION="${TARGET_DURATION:-15}"
 PLANNER_MODEL="${PLANNER_MODEL:-Qwen/Qwen2-VL-7B-Instruct}"
 PLANNER_CMD="${PLANNER_CMD:-${VENV_DIR}/bin/python ${AGENTIC_DIR}/scripts/local_lullaby_planner.py --model ${PLANNER_MODEL} --debug-output ${OUTPUT_PATH}/planner_raw_output.txt}"
+export OUTPUT_PATH
 
 for REQUIRED_PATH in \
   "${VENV_DIR}" \

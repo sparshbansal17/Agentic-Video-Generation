@@ -1,0 +1,62 @@
+{
+  "story_name": "twinkle_manual_4clip_storymem",
+  "story_overview": "A hand-authored four-clip StoryMem script for Twinkle Twinkle Little Star. Each scene maps to one lyric line from the opening stanza, uses one five-second video prompt, keeps the same pajama child and friendly rounded golden star, and avoids generated text inside the image.",
+  "scenes": [
+    {
+      "scene_num": 1,
+      "lyric_line": "Twinkle, twinkle, little star,",
+      "video_prompts": [
+        "Scene 1 of 4, toddler-safe lullaby animation: inside a cozy rounded bedroom playroom at night, a pajama child in soft blue star pajamas sits beside a round window with mint toys and a warm peach nightlight in the foreground. Outside the window, the same tiny rounded golden star with a friendly smiling face gently twinkles in a soft blue sky. Camera makes a slow push from the toys toward the window, with warm moonlight, pastel colors, soft edges, full-frame composition, gentle motion, no generated text, no letters, no captions, no inset frame, no scary elements."
+      ],
+      "first_frame_prompt": [
+        "Cozy toddler bedroom playroom at night, pajama child by round window, smiling rounded golden star outside, warm peach nightlight, mint toys, no text."
+      ],
+      "cut": [
+        true
+      ],
+      "subtitle_text": "Twinkle, twinkle, little star,"
+    },
+    {
+      "scene_num": 2,
+      "lyric_line": "How I wonder what you are!",
+      "video_prompts": [
+        "Scene 2 of 4, toddler-safe lullaby animation: the same pajama child stands closer to the round window and points upward with calm curiosity while the same friendly rounded golden star glows just outside. A teddy bear, moon mobile, and soft blanket remain visible as continuity props in the warm bedroom background. Camera glides gently sideways at child height as the child opens both hands in wonder, warm peach interior light mixing with cool blue moonlight, rounded storybook 3D style, soft focus background, no generated text, no letters, no captions, no inset frame, no scary elements."
+      ],
+      "first_frame_prompt": [
+        "Same pajama child near round window, hands lifted in wonder toward smiling golden star, teddy bear and moon mobile nearby, no text."
+      ],
+      "cut": [
+        true
+      ],
+      "subtitle_text": "How I wonder what you are!"
+    },
+    {
+      "scene_num": 3,
+      "lyric_line": "Up above the world so high,",
+      "video_prompts": [
+        "Scene 3 of 4, toddler-safe lullaby animation: the same friendly rounded golden star floats high above a soft toy-like town with tiny warm windows, plush clouds, rounded rooftops, and a quiet crescent moon. The pajama child is now a small safe silhouette at the bedroom window far below, maintaining story continuity without clutter. Camera rises in a slow crane move following the star upward through layered clouds, blue and gold bedtime palette, gentle sparkles that never form letters or symbols, full-frame open sky, no generated text, no captions, no inset frame, no scary elements."
+      ],
+      "first_frame_prompt": [
+        "Smiling rounded golden star above plush clouds and a toy-like town, small warm bedroom window far below, crescent moon, no text."
+      ],
+      "cut": [
+        true
+      ],
+      "subtitle_text": "Up above the world so high,"
+    },
+    {
+      "scene_num": 4,
+      "lyric_line": "Like a diamond in the sky.",
+      "video_prompts": [
+        "Scene 4 of 4, toddler-safe lullaby animation: close peaceful sky shot of the same rounded golden star sparkling like a soft toy diamond while staying cute, warm, and friendly, with plush clouds drifting behind it and the toy town glowing far below. The star smiles, blinks slowly, and sends a few tiny gold twinkles that fade gently. Camera eases into a slow half-orbit around the star and settles into a calm bedtime ending, pastel blue sky, warm gold rim light, soft rounded shapes, no generated text, no letters, no captions, no inset frame, no scary elements."
+      ],
+      "first_frame_prompt": [
+        "Close-up smiling rounded golden star sparkling softly like a toy diamond above plush clouds and warm toy town lights, no text."
+      ],
+      "cut": [
+        true
+      ],
+      "subtitle_text": "Like a diamond in the sky."
+    }
+  ]
+}
