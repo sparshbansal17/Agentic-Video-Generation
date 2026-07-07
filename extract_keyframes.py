@@ -250,41 +250,49 @@ def read_video(
     timestamps = timestamps[indices]
     return frames, timestamps
 
-def save_keyframes(video_path, frame_sim_thereshold = MIN_FRAME_SIMILARITY, frame_sim_func = get_frame_sim_clip, memory_cmp = True):
+def save_keyframes(
+    video_path,
+    frame_sim_thereshold=MIN_FRAME_SIMILARITY,
+    frame_sim_func=get_frame_sim_clip,
+    memory_cmp=True,
+    save_memory_keyframes=True,
+):
     st = time.time()
     frames, timestamps = read_video(video_path)
-    quality_model = HPSv3RewardInferencer(device="cuda")
-    while True:
-        keyframe_indices = extract_keyframe_indices(frames, quality_model, frame_sim_thereshold, frame_sim_func)
-        # print(f"? {keyframe_indices}")
-        if len(keyframe_indices) > MAX_KEYFRAME_NUM:
-            frame_sim_thereshold -= ADAPTIVE_ALPHA
-        else:
-            break
-    # keyframe_indices = [1, 40, 80]
-    logger.info(f"Read video: {video_path=}, {keyframe_indices=}, time={time.time() - st:.3f}s")
-    keyframes = frames[keyframe_indices]
-    if memory_cmp:
-        memory_paths = sorted(glob.glob(os.path.join(os.path.dirname(video_path), "*keyframe*.jpg")))
-        memory_bank = []
-        for p in memory_paths:
-            memory_frame = cv2.imread(p)
-            memory_frame = cv2.cvtColor(memory_frame, cv2.COLOR_BGR2RGB)
-            memory_frame = torch.tensor(memory_frame).permute(2, 0, 1)
-            memory_bank.append(memory_frame)
-    for i, keyframe in enumerate(keyframes):
+    keyframe_indices = []
+    if save_memory_keyframes:
+        quality_model = HPSv3RewardInferencer(device="cuda")
+        while True:
+            keyframe_indices = extract_keyframe_indices(frames, quality_model, frame_sim_thereshold, frame_sim_func)
+            # print(f"? {keyframe_indices}")
+            if len(keyframe_indices) > MAX_KEYFRAME_NUM:
+                frame_sim_thereshold -= ADAPTIVE_ALPHA
+            else:
+                break
+        # keyframe_indices = [1, 40, 80]
+        keyframes = frames[keyframe_indices]
         if memory_cmp:
-            pass_flag = False
-            for memory in memory_bank:
-                sim = frame_sim_func(keyframe, memory)
-                if sim > MIN_FRAME_SIMILARITY:
-                    pass_flag = True
-                    break
-            if pass_flag:
-                continue
-        keyframe = keyframe.permute(1, 2, 0).numpy()
-        keyframe = cv2.cvtColor(keyframe, cv2.COLOR_RGB2BGR)
-        cv2.imwrite(video_path.replace(".mp4", f"_keyframe{i}.jpg"), keyframe)
+            memory_paths = sorted(glob.glob(os.path.join(os.path.dirname(video_path), "*keyframe*.jpg")))
+            memory_bank = []
+            for p in memory_paths:
+                memory_frame = cv2.imread(p)
+                memory_frame = cv2.cvtColor(memory_frame, cv2.COLOR_BGR2RGB)
+                memory_frame = torch.tensor(memory_frame).permute(2, 0, 1)
+                memory_bank.append(memory_frame)
+        for i, keyframe in enumerate(keyframes):
+            if memory_cmp:
+                pass_flag = False
+                for memory in memory_bank:
+                    sim = frame_sim_func(keyframe, memory)
+                    if sim > MIN_FRAME_SIMILARITY:
+                        pass_flag = True
+                        break
+                if pass_flag:
+                    continue
+            keyframe = keyframe.permute(1, 2, 0).numpy()
+            keyframe = cv2.cvtColor(keyframe, cv2.COLOR_RGB2BGR)
+            cv2.imwrite(video_path.replace(".mp4", f"_keyframe{i}.jpg"), keyframe)
+    logger.info(f"Read video: {video_path=}, {keyframe_indices=}, time={time.time() - st:.3f}s")
     last_frame = frames[-1]
     last_frame = last_frame.permute(1, 2, 0).numpy()
     last_frame = cv2.cvtColor(last_frame, cv2.COLOR_RGB2BGR)

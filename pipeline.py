@@ -6,6 +6,7 @@ import json5
 import argparse
 import subprocess
 import logging
+import shutil
 import torch
 import torch.distributed as dist
 import multiprocessing as mp
@@ -31,6 +32,7 @@ def _parse_args():
     parser.add_argument("--log_file", type=str, default="./log.txt")
     parser.add_argument("--ffmpeg_bin", type=str, default="ffmpeg")
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--keyframe_mode", type=str, default="hps", choices=["hps", "simple", "off"])
     parser.add_argument("--ulysses_size", type=int, default=1, help="The size of the ulysses parallelism in DiT.")
     parser.add_argument("--t5_fsdp", action="store_true", default=False, help="Whether to use FSDP for T5.")
     parser.add_argument("--t5_cpu", action="store_true", default=False, help="Whether to place T5 model on CPU.")
@@ -52,6 +54,14 @@ def _parse_args():
     parser.add_argument("--lora_rank", type=int, default=None, help="The rank of LoRA weight.")
     args = parser.parse_args()
     return args
+
+def _save_storymem_keyframes(video_path, keyframe_mode):
+    if keyframe_mode == "off":
+        save_keyframes(video_path, memory_cmp=True, save_memory_keyframes=False)
+    elif keyframe_mode == "simple":
+        save_keyframes(video_path, memory_cmp=False)
+    else:
+        save_keyframes(video_path)
 
 def _init_logging(rank, log_file):
     for handler in logging.root.handlers[:]:
@@ -171,7 +181,7 @@ def main(args):
                 normalize=True,
                 value_range=(-1, 1)
             )
-            save_keyframes(f"{args.output_dir}/01_01.mp4")
+            _save_storymem_keyframes(f"{args.output_dir}/01_01.mp4", args.keyframe_mode)
             del video
             torch.cuda.empty_cache()
 
@@ -210,6 +220,7 @@ def main(args):
         finetune_checkpoint_dir=args.finetune_checkpoint_dir,
     )
 
+    shot_seed_offset = 0
     for scene in story_script["scenes"]:
         scene_num = scene["scene_num"]
         # os.makedirs(f"{args.output_dir}/scene_{scene_num}", exist_ok=True)
@@ -218,6 +229,7 @@ def main(args):
             shot_num = i + 1
             if (not args.m2v_first_shot) and scene_num == 1 and shot_num == 1:
                 continue
+            shot_seed_offset += 1
             logging.info(f"Generating Scene {scene_num} / Shot {shot_num}: {prompt}")
 
             # if args.use_prompt_extend:
@@ -269,7 +281,7 @@ def main(args):
                 sample_solver=args.sample_solver,
                 sampling_steps=m2v_config.sample_steps,
                 guide_scale=args.sample_guide_scale,
-                seed=args.seed+i,
+                seed=args.seed + shot_seed_offset,
                 offload_model=args.offload_model
             )
 
@@ -286,32 +298,40 @@ def main(args):
                     normalize=True,
                     value_range=(-1, 1)
                 )
-                save_keyframes(f"{args.output_dir}/{scene_num:02d}_{shot_num:02d}.mp4")
+                _save_storymem_keyframes(f"{args.output_dir}/{scene_num:02d}_{shot_num:02d}.mp4", args.keyframe_mode)
                 del video
                 torch.cuda.empty_cache()
 
             if dist.is_initialized():
                 dist.barrier()
     
-    videos = sorted(glob.glob(f"{args.output_dir}/*.mp4"))
-    list_path = os.path.join(args.output_dir, "concat_list.txt")
-    with open(list_path, "w", encoding="utf-8") as f:
-        for v in videos:
-            f.write(f"file '{os.path.abspath(v)}'\n")
     out = os.path.join(args.output_dir, f"{os.path.basename(args.output_dir)}.mp4")
-    ret = subprocess.run(
-        [args.ffmpeg_bin, "-f", "concat", "-safe", "0", "-i", list_path, "-c", "copy", "-y", out]
-    )
-    if ret.returncode != 0:
-        subprocess.run([
-            args.ffmpeg_bin, "-f", "concat", "-safe", "0", "-i", list_path,
-            "-c:v", "libx264", "-crf", "18", "-preset", "medium", "-pix_fmt", "yuv420p",
-            "-c:a", "aac", "-b:a", "192k", "-r", "30", "-y", out
-        ], check=True)
+    if rank == 0:
+        ffmpeg_bin = args.ffmpeg_bin or os.getenv("FFMPEG_BIN") or shutil.which("ffmpeg")
+        if not ffmpeg_bin:
+            raise FileNotFoundError("ffmpeg was not found. Set --ffmpeg_bin or FFMPEG_BIN.")
+        videos = sorted(glob.glob(f"{args.output_dir}/[0-9][0-9]_*.mp4"))
+        if not videos:
+            raise FileNotFoundError(f"No generated scene videos found in {args.output_dir}")
+        list_path = os.path.join(args.output_dir, "concat_list.txt")
+        with open(list_path, "w", encoding="utf-8") as f:
+            for v in videos:
+                f.write(f"file '{os.path.abspath(v)}'\n")
+        ret = subprocess.run(
+            [ffmpeg_bin, "-f", "concat", "-safe", "0", "-i", list_path, "-c", "copy", "-y", out]
+        )
+        if ret.returncode != 0:
+            subprocess.run([
+                ffmpeg_bin, "-f", "concat", "-safe", "0", "-i", list_path,
+                "-c:v", "libx264", "-crf", "18", "-preset", "medium", "-pix_fmt", "yuv420p",
+                "-c:a", "aac", "-b:a", "192k", "-r", "30", "-y", out
+            ], check=True)
+
+    if dist.is_initialized():
+        dist.barrier()
 
     torch.cuda.synchronize()
     if dist.is_initialized():
-        dist.barrier()
         dist.destroy_process_group()
     logging.info("Finished.")
 

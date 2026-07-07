@@ -738,6 +738,8 @@ class AgenticArchitectureTests(unittest.TestCase):
             self.assertIn("--t2v_first_shot", commands[0])
             self.assertNotIn("--mi2v", commands[0])
             self.assertIn("--mi2v", commands[1])
+            self.assertEqual(commands[0][commands[0].index("--seed") + 1], "0")
+            self.assertEqual(commands[1][commands[1].index("--seed") + 1], "0")
             first_story = json.loads((iteration / "story_t2v_first_shot.json").read_text(encoding="utf-8"))
             storymem_story = json.loads((iteration / "storymem_story.json").read_text(encoding="utf-8"))
             full_story = json.loads((iteration / "story.json").read_text(encoding="utf-8"))
@@ -826,6 +828,7 @@ class AgenticArchitectureTests(unittest.TestCase):
             sample_steps=20,
             frame_num=41,
             keyframe_mode="simple",
+            seed=123,
         )
 
         first = commands[0]
@@ -835,6 +838,8 @@ class AgenticArchitectureTests(unittest.TestCase):
         self.assertEqual(first[first.index("--sample_steps") + 1], "20")
         self.assertEqual(second[second.index("--frame_num") + 1], "41")
         self.assertEqual(first[first.index("--keyframe_mode") + 1], "simple")
+        self.assertEqual(first[first.index("--seed") + 1], "123")
+        self.assertEqual(second[second.index("--seed") + 1], "123")
 
     def test_resume_reuses_completed_iteration_reports(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -883,10 +888,12 @@ class AgenticArchitectureTests(unittest.TestCase):
             i2v_model_path=Path("models/i2v"),
             lora_weight_path=Path("models/lora"),
             nproc_per_node=4,
+            seed=456,
         )
 
         self.assertIn("--mi2v", command)
         self.assertNotIn("--t2v_first_shot", command)
+        self.assertEqual(command[command.index("--seed") + 1], "456")
         self.assertTrue(Path(command[command.index("--story_script_path") + 1]).is_absolute())
 
 
