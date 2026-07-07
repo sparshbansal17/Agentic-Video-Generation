@@ -152,11 +152,12 @@ def main() -> int:
     args = parser.parse_args()
 
     from cosyvoice.cli.cosyvoice import CosyVoice2
-    from cosyvoice.utils.file_utils import load_wav
 
     model = CosyVoice2(args.model_dir)
-    prompt_speech = load_wav(args.prompt_audio, 16000)
-    result = next(model.inference_zero_shot(args.text, args.prompt_text, prompt_speech, stream=False))
+    prompt_audio = Path(args.prompt_audio)
+    if not prompt_audio.exists():
+        raise FileNotFoundError(f"prompt audio does not exist: {prompt_audio}")
+    result = next(model.inference_zero_shot(args.text, args.prompt_text, str(prompt_audio), stream=False))
     audio = result["tts_speech"].detach().cpu().numpy().T
     Path(args.output).parent.mkdir(parents=True, exist_ok=True)
     sf.write(args.output, audio, model.sample_rate)

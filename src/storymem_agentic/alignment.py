@@ -49,6 +49,13 @@ def normalized_word_tokens(aligned_words: list[dict[str, Any]]) -> list[tuple[st
     return tokens
 
 
+def repeated_word_requirements(line: str) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for token in words(line):
+        counts[token] = counts.get(token, 0) + 1
+    return {token: count for token, count in counts.items() if count > 1}
+
+
 def _token_seconds(item: dict[str, Any]) -> tuple[float | None, float | None]:
     start = item.get("start")
     end = item.get("end")
@@ -95,6 +102,25 @@ def _ordered_line_match(wanted: list[str], observed_tokens: list[tuple[str, dict
     return matched
 
 
+def _ordered_line_match_tokens(
+    wanted: list[str],
+    observed_tokens: list[tuple[str, dict[str, Any]]],
+) -> list[tuple[str, dict[str, Any]]]:
+    cursor = 0
+    matched = []
+    for wanted_word in wanted:
+        found_index = None
+        for token_index in range(cursor, len(observed_tokens)):
+            if observed_tokens[token_index][0] == wanted_word:
+                found_index = token_index
+                break
+        if found_index is None:
+            continue
+        matched.append(observed_tokens[found_index])
+        cursor = found_index + 1
+    return matched
+
+
 def _timing_items(matched: list[dict[str, Any]]) -> list[dict[str, Any]]:
     reliable = [
         item
@@ -117,10 +143,20 @@ def line_timestamps(
         wanted = words(line)
         window = planned_windows[index - 1] if planned_windows and index <= len(planned_windows) else None
         candidates = _tokens_for_window(observed_tokens, window, window_tolerance_seconds)
-        matched = _ordered_line_match(wanted, candidates)
+        matched_tokens = _ordered_line_match_tokens(wanted, candidates)
+        matched = [item for _, item in matched_tokens]
         timing_items = _timing_items(matched)
         starts = [float(item["start"]) for item in timing_items if "start" in item]
         ends = [float(item["end"]) for item in timing_items if "end" in item]
+        matched_counts: dict[str, int] = {}
+        for token, _ in matched_tokens:
+            matched_counts[token] = matched_counts.get(token, 0) + 1
+        repeated = repeated_word_requirements(line)
+        repeated_missing = {
+            token: {"expected": expected, "matched": matched_counts.get(token, 0)}
+            for token, expected in repeated.items()
+            if matched_counts.get(token, 0) < expected
+        }
         output.append(
             {
                 "line_index": index,
@@ -130,6 +166,9 @@ def line_timestamps(
                 "matched_word_count": len(matched),
                 "expected_word_count": len(wanted),
                 "matched_ratio": (len(matched) / len(wanted)) if wanted else 1.0,
+                "missing_word_count": max(len(wanted) - len(matched), 0),
+                "repeated_word_requirements": repeated,
+                "repeated_word_omissions": repeated_missing,
             }
         )
     return output
@@ -148,14 +187,27 @@ def analyze_whisperx_alignment(
     wer = word_error_rate(reference, hypothesis)
     lines = line_timestamps(reference_lines, aligned_words, planned_windows)
     failures = []
+    if reference.strip() and not hypothesis.strip():
+        failures.append("missing_observed_lyrics")
+    final_line_index = len(reference_lines)
     for item, (planned_start, planned_end) in zip(lines, planned_windows):
         observed_start = item["observed_start_seconds"]
         observed_end = item["observed_end_seconds"]
         if observed_start is None or observed_end is None:
             failures.append(f"line_{item['line_index']}_missing_words")
+            if item["line_index"] == final_line_index:
+                failures.append(f"line_{item['line_index']}_final_line_incomplete")
             continue
         if item["matched_ratio"] < 0.8:
             failures.append(f"line_{item['line_index']}_partial_words")
+        if item["matched_word_count"] < item["expected_word_count"]:
+            failures.append(f"line_{item['line_index']}_missing_words")
+            if item["line_index"] == final_line_index:
+                failures.append(f"line_{item['line_index']}_final_line_incomplete")
+        for token, counts in item.get("repeated_word_omissions", {}).items():
+            failures.append(
+                f"line_{item['line_index']}_omitted_repeated_{token}_{counts['matched']}_of_{counts['expected']}"
+            )
         start_drift = observed_start - planned_start
         end_drift = observed_end - planned_end
         item["start_drift_seconds"] = round(start_drift, 3)
@@ -166,9 +218,18 @@ def analyze_whisperx_alignment(
             failures.append(f"line_{item['line_index']}_ends_after_scene")
     if wer > wer_threshold:
         failures.append("wer_above_threshold")
+    failures = list(dict.fromkeys(failures))
+    total_expected = sum(int(item["expected_word_count"]) for item in lines)
+    total_missing = sum(int(item["missing_word_count"]) for item in lines)
+    final_line = lines[-1] if lines else {}
     return {
         "passed": not failures,
         "word_error_rate": wer,
+        "lyric_completeness": 1.0 if total_expected == 0 else (total_expected - total_missing) / total_expected,
+        "final_line_completeness": float(final_line.get("matched_ratio", 1.0) or 0.0),
+        "repeated_word_omission_count": sum(
+            1 for item in lines for _ in item.get("repeated_word_omissions", {})
+        ),
         "wer_threshold": wer_threshold,
         "drift_tolerance_seconds": drift_tolerance_seconds,
         "transcript": hypothesis,

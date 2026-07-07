@@ -1,11 +1,12 @@
 import unittest
+import inspect
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from story_audio import AudioConfig, _render_command, _validate_voice_reference
+from story_audio import AudioConfig, _mix_stems, _render_command, _validate_voice_reference
 from storymem_agentic.backends import default_backends
 from storymem_agentic.cli import build_parser
-from storymem_agentic.orchestrator import _bounded_candidate_count, _retry_seed_offsets
+from storymem_agentic.orchestrator import _alignment_rank, _bounded_candidate_count, _retry_seed_offsets
 
 
 class BackendTests(unittest.TestCase):
@@ -106,6 +107,35 @@ class BackendTests(unittest.TestCase):
         self.assertEqual(_bounded_candidate_count(0, 3), 1)
         self.assertEqual(_retry_seed_offsets(1, [1601, 3203, 4801]), [])
         self.assertEqual(_retry_seed_offsets(3, [1601, 3203, 4801]), [1601, 3203])
+
+    def test_candidate_rank_prefers_complete_final_lyrics_over_lower_wer(self):
+        complete = {
+            "passed": False,
+            "word_error_rate": 0.2,
+            "repeated_word_omission_count": 0,
+            "failure_reasons": ["line_1_starts_before_scene"],
+            "lines": [
+                {"expected_word_count": 4, "matched_word_count": 4, "missing_word_count": 0},
+            ],
+        }
+        incomplete_lower_wer = {
+            "passed": False,
+            "word_error_rate": 0.05,
+            "repeated_word_omission_count": 1,
+            "failure_reasons": ["line_1_omitted_repeated_twinkle_1_of_2"],
+            "lines": [
+                {"expected_word_count": 4, "matched_word_count": 3, "missing_word_count": 1},
+            ],
+        }
+
+        self.assertLess(_alignment_rank(complete), _alignment_rank(incomplete_lower_wer))
+
+    def test_stem_mix_graph_splits_vocal_sidechain_and_mix_labels(self):
+        source = inspect.getsource(_mix_stems)
+
+        self.assertIn("asplit=2[voc_sc][voc_mix]", source)
+        self.assertIn("[back][voc_sc]sidechaincompress", source)
+        self.assertIn("[ducked][voc_mix]amix", source)
 
 
 if __name__ == "__main__":

@@ -7,6 +7,22 @@ def _mapping(value: object) -> dict:
     return value if isinstance(value, dict) else {}
 
 
+def _dedupe_guidance(parts: list[str]) -> str:
+    seen = set()
+    output = []
+    for part in parts:
+        for sentence in str(part).replace("|", ". ").split("."):
+            compact = " ".join(sentence.split()).strip()
+            if not compact:
+                continue
+            key = compact.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            output.append(compact)
+    return ". ".join(output)
+
+
 def build_revision_plan(plan: ProductionPlan, report: EvaluationReport) -> RevisionPlan:
     failed = set(report.regeneration_targets)
     reviewer_evidence = {item.reviewer: item.evidence for item in report.reviewer_reports}
@@ -77,6 +93,10 @@ def build_revision_plan(plan: ProductionPlan, report: EvaluationReport) -> Revis
         expected = int(item.get("expected_word_count") or 0)
         if item.get("observed_start_seconds") is None or item.get("observed_end_seconds") is None or matched < expected:
             failed_audio_lines.append(f"line {line_index}: {item.get('text')}")
+        for token, counts in (item.get("repeated_word_omissions") or {}).items():
+            failed_audio_lines.append(
+                f'line {line_index} omitted repeated "{token}" ({counts.get("matched")} of {counts.get("expected")}); regenerate line {line_index} with each "{token}" clearly separated'
+            )
     exact_line_guidance = (
         " Pay special attention to these exact lines: " + " | ".join(failed_audio_lines) + "."
         if failed_audio_lines
@@ -91,7 +111,7 @@ def build_revision_plan(plan: ProductionPlan, report: EvaluationReport) -> Revis
         else None
     )
     if model_audio_revisions:
-        audio_revision = " ".join([item for item in [audio_revision, *model_audio_revisions] if item])
+        audio_revision = _dedupe_guidance([item for item in [audio_revision, *model_audio_revisions] if item])
 
     return RevisionPlan(
         version="1.0",

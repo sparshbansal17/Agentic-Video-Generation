@@ -250,7 +250,19 @@ def evaluate_iteration(
                     passed=not (whisperx_alignment and whisperx_alignment["failure_reasons"]),
                     scores={"line_timing": 0.0 if whisperx_alignment and whisperx_alignment["failure_reasons"] else 1.0},
                     failure_reasons=list(whisperx_alignment["failure_reasons"]) if whisperx_alignment else [],
-                    evidence={"subtitle_path": str(subtitle_path) if subtitle_path else None},
+                    evidence={
+                        "subtitle_path": str(subtitle_path) if subtitle_path else None,
+                        "whisperx_alignment": whisperx_alignment,
+                        "planned_line_timing": [
+                            {
+                                "line_index": segment.index,
+                                "text": segment.text,
+                                "start_seconds": segment.start_seconds,
+                                "end_seconds": segment.end_seconds,
+                            }
+                            for segment in plan.lyric_segments
+                        ],
+                    },
                 ),
             ]
         )
@@ -264,6 +276,7 @@ def evaluate_iteration(
             "missing_audio_stream",
             "audio_video_duration_mismatch",
             "missing_whisperx_alignment",
+            "missing_observed_lyrics",
             "wer_above_threshold",
         }
         audio_only = True
@@ -275,6 +288,8 @@ def evaluate_iteration(
                 or reason.endswith("_partial_words")
                 or reason.endswith("_starts_before_scene")
                 or reason.endswith("_ends_after_scene")
+                or "_omitted_repeated_" in reason
+                or reason.endswith("_final_line_incomplete")
             ):
                 continue
             audio_only = False

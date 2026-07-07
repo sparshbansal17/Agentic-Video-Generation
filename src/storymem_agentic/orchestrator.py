@@ -409,7 +409,7 @@ def _is_whisperx_timing_failure(report: EvaluationReport | None) -> bool:
     if not report.whisperx_alignment:
         return False
     return any(
-        str(reason).startswith("line_") or str(reason) == "wer_above_threshold"
+        str(reason).startswith("line_") or str(reason) in {"wer_above_threshold", "missing_observed_lyrics"}
         for reason in report.whisperx_alignment.get("failure_reasons", [])
     )
 
@@ -427,17 +427,35 @@ def _needs_scene_lyrics_audio_fallback(alignment: dict[str, Any] | None) -> bool
     if not alignment or alignment.get("passed"):
         return False
     return any(
-        str(reason).startswith("line_") or str(reason) == "wer_above_threshold"
+        str(reason).startswith("line_") or str(reason) in {"wer_above_threshold", "missing_observed_lyrics"}
         for reason in alignment.get("failure_reasons", [])
     )
 
 
-def _alignment_rank(alignment: dict[str, Any] | None) -> tuple[int, float, int]:
+def _alignment_rank(alignment: dict[str, Any] | None) -> tuple[int, int, int, int, float, float, int]:
     if not alignment:
-        return (1, 1.0, 999)
+        return (1, 999, 999, 999, 1.0, 999.0, 999)
+    lines = alignment.get("lines", []) or []
+    missing_words = sum(int(item.get("missing_word_count") or 0) for item in lines)
+    final_line_missing = 0
+    if lines:
+        final = lines[-1]
+        final_line_missing = max(
+            int(final.get("expected_word_count") or 0) - int(final.get("matched_word_count") or 0),
+            0,
+        )
+    repeated_omissions = int(alignment.get("repeated_word_omission_count") or 0)
+    drift = 0.0
+    for item in lines:
+        drift += abs(float(item.get("start_drift_seconds") or 0.0))
+        drift += abs(float(item.get("end_drift_seconds") or 0.0))
     return (
         0 if alignment.get("passed") else 1,
+        final_line_missing,
+        repeated_omissions,
+        missing_words,
         float(alignment.get("word_error_rate", 1.0) or 1.0),
+        drift,
         len(alignment.get("failure_reasons", []) or []),
     )
 
@@ -689,12 +707,21 @@ def run_workflow(
                 audio_voice_backend = "f5_tts"
             else:
                 audio_voice_backend = "ace_step_full_song" if plan.audio_mode == "full_song" else "f5_tts"
+            if current_media_audio_mode in {"hybrid_voice_bed", "scene_lyrics_mix"} and audio_voice_backend in {
+                "ace_step",
+                "ace_step_full_song",
+            }:
+                audio_voice_backend = "f5_tts"
             if music_backend:
                 audio_music_backend = music_backend
             elif current_media_audio_mode == "hybrid_voice_bed":
                 audio_music_backend = "musicgen"
             else:
                 audio_music_backend = "ace_step_full_song" if plan.audio_mode == "full_song" else "musicgen"
+            if current_media_audio_mode in {"hybrid_voice_bed", "scene_lyrics_mix"} and audio_music_backend in {
+                "ace_step_full_song",
+            }:
+                audio_music_backend = "musicgen"
             effective_media_audio_mode = media_audio_mode
             if plan.audio_mode == "voice_bed" and media_audio_mode == "full_song":
                 effective_media_audio_mode = "separate_stems"
@@ -832,14 +859,15 @@ def run_workflow(
                 }
                 write_json(latest_paths["iteration_dir"] / "full_song_audio_fallback.json", fallback_record)
                 write_json(latest_paths["iteration_dir"] / "whisperx_full_song_alignment.json", full_song_alignment)
-                if allow_scene_mix_debug:
-                    current_media_audio_mode = "hybrid_voice_bed" if media_audio_mode == "hybrid_voice_bed" else "scene_lyrics_mix"
-                    audio_result = render_audio_candidate(current_media_audio_mode, seed_offset=503)
-                    if audio_result.get("media_output"):
-                        final_candidate = Path(str(audio_result["media_output"]))
-                    audio_result["fallback_from_full_song"] = fallback_record
-                    write_json(latest_paths["iteration_dir"] / "audio_postprocess_result.json", audio_result)
-                    run_audio_alignment(final_candidate, "whisperx_scene_lyrics_mix")
+                current_media_audio_mode = "hybrid_voice_bed" if media_audio_mode == "hybrid_voice_bed" else "scene_lyrics_mix"
+                audio_voice_backend = "f5_tts" if audio_voice_backend in {"ace_step", "ace_step_full_song"} else audio_voice_backend
+                audio_music_backend = "musicgen" if audio_music_backend in {"ace_step", "ace_step_full_song"} else audio_music_backend
+                audio_result = render_audio_candidate(current_media_audio_mode, seed_offset=503)
+                if audio_result.get("media_output"):
+                    final_candidate = Path(str(audio_result["media_output"]))
+                audio_result["fallback_from_full_song"] = fallback_record
+                write_json(latest_paths["iteration_dir"] / "audio_postprocess_result.json", audio_result)
+                run_audio_alignment(final_candidate, "whisperx_scene_lyrics_mix")
 
         if (
             mode in {"generate", "iterate"}
@@ -966,8 +994,7 @@ def run_workflow(
             reuse_generated_video_dir = latest_paths["generated_dir"]
             visual_regeneration_start_scene = None
             if (
-                allow_scene_mix_debug
-                and current_media_audio_mode == "full_song"
+                current_media_audio_mode == "full_song"
                 and _is_whisperx_timing_failure(latest_report)
             ):
                 current_media_audio_mode = "hybrid_voice_bed" if media_audio_mode == "hybrid_voice_bed" else "scene_lyrics_mix"

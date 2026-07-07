@@ -80,28 +80,90 @@ def _scene_summaries(story: dict) -> list[str]:
     return summaries
 
 
+def _repeated_word_warnings(lines: list[str]) -> list[str]:
+    warnings = []
+    token_re = re.compile(r"[A-Za-z0-9']+")
+    for line_index, line in enumerate(lines, start=1):
+        counts: dict[str, int] = {}
+        originals: dict[str, str] = {}
+        for match in token_re.finditer(line):
+            token = match.group(0)
+            key = token.lower()
+            counts[key] = counts.get(key, 0) + 1
+            originals.setdefault(key, token)
+        for key, count in counts.items():
+            if count > 1:
+                warnings.append(
+                    f'Line {line_index}: "{originals[key]}" appears {count} times; sing all {count} as separate audible words.'
+                )
+    return warnings
+
+
+def _dedupe_sentences(text: str) -> str:
+    seen = set()
+    output = []
+    for part in re.split(r"(?<=[.!?])\s+|;\s+", text):
+        compact = " ".join(part.split()).strip(" .;")
+        if not compact:
+            continue
+        key = compact.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        output.append(compact)
+    return ". ".join(output)
+
+
 def _audio_style_prompt(story: dict, config: AudioConfig) -> str:
     scene_notes = []
     for i, summary in enumerate(_scene_summaries(story), start=1):
         compact = " ".join(summary.split())
         scene_notes.append(f"scene {i}: {compact[:95]}")
-    metadata = story.get("agentic_metadata", {})
-    plan_music_prompt = str(metadata.get("music_prompt", "")).strip()
     lyric_lines = [
         str(scene.get("lyric_line", "")).strip()
         for scene in story.get("scenes", [])
         if str(scene.get("lyric_line", "")).strip()
     ]
-    exact_lyrics = "; ".join(f"{i}. {line}" for i, line in enumerate(lyric_lines, start=1))
-    prompt = (
-        f"{DEFAULT_STYLE_PROMPT}, voice feel: {config.audio_voice_style}, "
-        f"planner audio direction: {plan_music_prompt}, "
-        f"exact lyric order: {exact_lyrics}, "
-        "arrangement follows the full story arc with a soft opening, curious bedtime moment, "
-        "gentle lift over the sleeping world, sparkling highlight, and peaceful goodnight cadence, "
-        + ", ".join(scene_notes)
+    metadata = story.get("agentic_metadata", {})
+    plan_music_prompt = _dedupe_sentences(str(metadata.get("music_prompt", "")).strip())
+    exact_lyrics = "\n".join(f"{i}. {line}" for i, line in enumerate(lyric_lines, start=1))
+    timing_windows = []
+    for i, scene in enumerate(story.get("scenes", [])[:len(lyric_lines)], start=1):
+        if scene.get("planned_start_seconds") is not None and scene.get("planned_end_seconds") is not None:
+            timing_windows.append(
+                f"{i}. {float(scene['planned_start_seconds']):.3f}-{float(scene['planned_end_seconds']):.3f}s"
+            )
+    repeated_warnings = _repeated_word_warnings(lyric_lines)
+    required = (
+        "EXACT NUMBERED LYRICS - immutable, sing every written word in order:\n"
+        f"{exact_lyrics}\n"
+        "PER-LINE TIMING WINDOWS:\n"
+        f"{chr(10).join(timing_windows) if timing_windows else 'Use the full video duration in lyric order.'}\n"
+        "REPEATED-WORD CONSTRAINTS:\n"
+        f"{chr(10).join(repeated_warnings) if repeated_warnings else 'No repeated words requiring special handling.'}\n"
+        "BACKEND INSTRUCTION: do not omit, merge, paraphrase, reorder, or replace words; repeated words must be separately audible."
     )
-    return prompt[:MAX_AUDIO_PROMPT_CHARS]
+    style = (
+        f"STYLE/TONE: {DEFAULT_STYLE_PROMPT}, voice feel: {config.audio_voice_style}, "
+        f"planner audio direction: {plan_music_prompt}."
+    )
+    scene_prefix = (
+        "COMPACT SCENE CONTEXT: arrangement follows the full story arc with a soft opening, curious bedtime moment, "
+        "gentle lift over the sleeping world, sparkling highlight, and peaceful goodnight cadence, "
+    )
+    scene_context = scene_prefix + ", ".join(scene_notes)
+    remaining = MAX_AUDIO_PROMPT_CHARS - len(required) - len(style) - 8
+    if remaining > 80:
+        scene_context = scene_context[:remaining]
+    else:
+        scene_context = ""
+    prompt = (
+        required
+        + "\n"
+        + style
+        + ("\n" + scene_context if scene_context else "")
+    )
+    return prompt
 
 
 def _fallback_lyrics(story: dict) -> str:
@@ -207,7 +269,7 @@ def _write_audio_prompt(path: Path, style_prompt: str, story: dict, config: Audi
         "vocal_backend": config.vocal_backend,
         "backing_backend": config.backing_backend,
         "voice_style": config.audio_voice_style,
-        "style_prompt": style_prompt[:MAX_AUDIO_PROMPT_CHARS],
+        "style_prompt": style_prompt,
         "style_prompt_limit_chars": MAX_AUDIO_PROMPT_CHARS,
         "seed": config.seed,
         "lyrics": lyrics,
@@ -356,11 +418,11 @@ def _mix_stems(ffmpeg: str, vocals: Path, backing: Path, output: Path, duration:
     fade_out_start = max(duration - 1.2, 0)
     filter_complex = (
         "[0:a]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,"
-        "highpass=f=90,loudnorm=I=-16:TP=-1.5:LRA=9[voc];"
+        "highpass=f=90,loudnorm=I=-16:TP=-1.5:LRA=9,asplit=2[voc_sc][voc_mix];"
         "[1:a]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,"
         "loudnorm=I=-20:TP=-2:LRA=11[back];"
-        "[back][voc]sidechaincompress=threshold=0.04:ratio=6:attack=20:release=250[ducked];"
-        "[ducked][voc]amix=inputs=2:weights='0.45 1.0':duration=longest:dropout_transition=0,"
+        "[back][voc_sc]sidechaincompress=threshold=0.04:ratio=6:attack=20:release=250[ducked];"
+        "[ducked][voc_mix]amix=inputs=2:weights='0.45 1.0':duration=longest:dropout_transition=0,"
         "loudnorm=I=-15:TP=-1.5:LRA=10,"
         "afade=t=in:st=0:d=0.7,"
         f"afade=t=out:st={fade_out_start:.3f}:d=1.2,"
@@ -379,9 +441,8 @@ def _mix_stems(ffmpeg: str, vocals: Path, backing: Path, output: Path, duration:
 
 def _estimated_line_vocal_duration(line: str, scene_duration: float) -> float:
     words = re.findall(r"[A-Za-z0-9']+", line)
-    # Short lines otherwise encourage ACE-Step to repeat words to fill the clip.
-    estimated = 0.55 * max(len(words), 1) + 0.65
-    return max(1.8, min(scene_duration - 0.35, estimated))
+    estimated = 0.58 * max(len(words), 1) + 0.9
+    return max(1.8, min(scene_duration - 0.15, estimated))
 
 
 def _prepare_scene_vocal(
@@ -392,15 +453,16 @@ def _prepare_scene_vocal(
     *,
     active_duration: float | None = None,
 ) -> None:
-    trim_duration = max(min(active_duration or scene_duration - 0.15, scene_duration - 0.15), 0.1)
-    fade_start = max(trim_duration - 0.25, 0)
+    trim_duration = max(min(active_duration or scene_duration - 0.05, scene_duration - 0.05), 0.1)
+    fade_duration = min(0.08, max(scene_duration - trim_duration, 0.0))
+    fade_start = max(trim_duration - fade_duration, 0)
     audio_filter = (
         "aresample=48000,"
         "aformat=sample_fmts=fltp:channel_layouts=stereo,"
         "highpass=f=100,"
         "loudnorm=I=-13:TP=-1.5:LRA=8,"
         f"atrim=0:{trim_duration:.3f},"
-        f"afade=t=out:st={fade_start:.3f}:d=0.25,"
+        f"afade=t=out:st={fade_start:.3f}:d={fade_duration:.3f},"
         f"apad=pad_dur={scene_duration:.3f},"
         f"atrim=0:{scene_duration:.3f}"
     )
@@ -420,7 +482,7 @@ def _mix_scene_lyrics(
     output: Path,
     duration: float,
 ) -> None:
-    fade_out_start = max(duration - 2.0, 0)
+    fade_out_start = max(duration - 0.35, 0)
     inputs = [ffmpeg, "-y", "-stream_loop", "-1", "-i", str(backing)]
     for vocal in scene_vocals:
         inputs.extend(["-i", str(vocal)])
@@ -451,7 +513,7 @@ def _mix_scene_lyrics(
         "[ducked][vocals_mix]amix=inputs=2:weights='0.18 1.7':duration=longest:dropout_transition=0,"
         "loudnorm=I=-14:TP=-1.5:LRA=9,"
         "afade=t=in:st=0:d=0.25,"
-        f"afade=t=out:st={fade_out_start:.3f}:d=2.0,"
+        f"afade=t=out:st={fade_out_start:.3f}:d=0.35,"
         f"apad=pad_dur={duration:.3f},atrim=0:{duration:.3f}[a]"
     )
     subprocess.run([
@@ -485,6 +547,10 @@ def _generate_scene_lyrics_mix(
 
     scene_work_dir = work_dir / "scene_lyrics_mix"
     scene_work_dir.mkdir(parents=True, exist_ok=True)
+    timing_metadata = {
+        "duration_seconds": duration,
+        "lines": [],
+    }
 
     backing_prompt = (
         "instrumental only, no singing, no spoken words, no humming, karaoke backing track for the planned nursery rhyme, "
@@ -529,10 +595,14 @@ def _generate_scene_lyrics_mix(
         line_lyrics_path = scene_work_dir / f"line_{index:02d}_lyrics.txt"
         line_lyrics_path.write_text(line + "\n", encoding="utf-8")
         line_prompt = (
+            f"EXACT NUMBERED LYRIC: {index}. {line}\n"
+            f"TIMING WINDOW: line {index} must fit inside {scene_starts[index - 1]:.3f}-{scene_starts[index - 1] + scene_duration:.3f}s after mixing.\n"
+            + "\n".join(_repeated_word_warnings([line]))
+            + "\n"
             "a cappella sung nursery-rhyme vocal only, no instrumental backing, no intro, "
             "the first word starts immediately at 0.0 seconds, clear toddler singalong pronunciation, "
             "gentle adult lead vocal with soft childlike brightness, child-friendly Cocomelon style, "
-            "sing the line once, stop after the final word, do not repeat any words, "
+            "sing the line once, stop after the final word, do not add extra words, "
             f"sing exactly this one lyric line and nothing else: {line}"
         )
         vocal_duration = _estimated_line_vocal_duration(line, scene_duration)
@@ -567,6 +637,22 @@ def _generate_scene_lyrics_mix(
             )
         _prepare_scene_vocal(ffmpeg, raw_vocal, prepared_vocal, scene_duration, active_duration=vocal_duration)
         prepared_vocals.append(prepared_vocal)
+        timing_metadata["lines"].append(
+            {
+                "line_index": index,
+                "text": line,
+                "scene_start_seconds": scene_starts[index - 1],
+                "scene_end_seconds": scene_starts[index - 1] + scene_duration,
+                "scene_duration_seconds": scene_duration,
+                "estimated_vocal_duration_seconds": vocal_duration,
+                "raw_vocal": str(raw_vocal),
+                "prepared_vocal": str(prepared_vocal),
+                "repeated_word_warnings": _repeated_word_warnings([line]),
+            }
+        )
+
+    with open(scene_work_dir / "timing_metadata.json", "w", encoding="utf-8") as f:
+        json.dump(timing_metadata, f, indent=2)
 
     _mix_scene_lyrics(
         ffmpeg,
@@ -622,7 +708,7 @@ def generate_audio_for_story(config: AudioConfig) -> Path | None:
     values = {
         "lyrics_file": str(lyrics_path),
         "prompt_file": str(prompt_path),
-        "style_prompt": DEFAULT_STYLE_PROMPT,
+        "style_prompt": _audio_style_prompt(story, config),
         "duration": f"{duration:.3f}",
         "seed": str(config.seed),
     }

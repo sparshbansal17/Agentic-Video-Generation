@@ -1,6 +1,6 @@
 import unittest
 
-from storymem_agentic.alignment import line_timestamps, transcript_from_words, word_error_rate
+from storymem_agentic.alignment import analyze_whisperx_alignment, line_timestamps, transcript_from_words, word_error_rate
 
 
 class AlignmentTests(unittest.TestCase):
@@ -39,6 +39,27 @@ class AlignmentTests(unittest.TestCase):
 
         self.assertEqual(lines[0]["observed_start_seconds"], 0.2)
         self.assertEqual(lines[1]["observed_start_seconds"], 10.2)
+
+    def test_repeated_word_omission_fails_exact_alignment(self):
+        result = analyze_whisperx_alignment(
+            ["Twinkle, twinkle, little star"],
+            [(0.0, 4.0)],
+            [
+                {"word": "Twinkle", "start": 0.2, "end": 0.6},
+                {"word": "little", "start": 0.7, "end": 1.0},
+                {"word": "star", "start": 1.1, "end": 1.5},
+            ],
+        )
+
+        self.assertFalse(result["passed"])
+        self.assertIn("line_1_omitted_repeated_twinkle_1_of_2", result["failure_reasons"])
+        self.assertIn("line_1_final_line_incomplete", result["failure_reasons"])
+
+    def test_empty_alignment_is_pending_failure(self):
+        result = analyze_whisperx_alignment(["Hush now"], [(0.0, 2.0)], [])
+
+        self.assertFalse(result["passed"])
+        self.assertIn("missing_observed_lyrics", result["failure_reasons"])
 
 
 if __name__ == "__main__":

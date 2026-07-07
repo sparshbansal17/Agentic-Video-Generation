@@ -134,12 +134,14 @@ def _prompt_for_reviewer(reviewer: str) -> str:
         ),
         "AudioReviewAgent": (
             "Review audio evidence for lullaby quality: clear pleasant vocals, complete lyrics, gentle music, "
-            "good mix/loudness, no harsh or scary sound, and a child-friendly bedtime mood."
+            "good mix/loudness, no harsh or scary sound, and a child-friendly bedtime mood. Provide evidence for "
+            "gentle bedtime tone, clear pleasant vocal, music not overpowering lyrics, and child-safe delivery."
         ),
         "AudioVisualSyncReviewAgent": (
             "Review the pairing of video frames, lyric timing, subtitles, and audio transcript. Check whether "
             "lyrics occur near the intended scene, whether scene mood fits the sung line, and whether fixes "
-            "should target video prompts, audio prompt, subtitles, or clip timing."
+            "should target video prompts, audio prompt, subtitles, or clip timing. Fail if WhisperX line timing "
+            "or exact lyric completeness fails, even when the overall audio feels synchronized."
         ),
     }
     return f"{base} {reviewer_focus[reviewer]}"
@@ -153,6 +155,9 @@ def _aggregated_review_prompt() -> str:
         "Use the provided sampled frame paths, final video path, subtitles, scene prompts, character bank, "
         "WhisperX transcript/timing, and stream/duration evidence. Do not pass unsafe, scary, cluttered, "
         "off-lyric, visually inconsistent, harsh-sounding, badly mixed, mistimed, or non-child-friendly output. "
+        "For audio reviews, provide evidence for gentle bedtime tone, clear pleasant vocal, no harsh/scary sounds, "
+        "music not overpowering lyrics, scene mood fit, and child-safe nursery-rhyme delivery. "
+        "AudioVisualSyncReviewAgent must fail when WhisperX line timing or exact lyric completeness fails. "
         "If a fix is needed, include target_scenes, prompt_revisions, first_frame_prompt_revisions, "
         "audio_prompt_revision, subtitle_timing_adjustments, or mix_adjustments as appropriate. Scores are 0.0 to 1.0."
     )
@@ -284,8 +289,19 @@ def model_review_reports(
         "duration_seconds": duration,
         "planned_duration_seconds": planned_duration,
         "whisperx_alignment": whisperx_alignment,
+        "whisperx_transcript": (whisperx_alignment or {}).get("transcript"),
+        "whisperx_line_timing": (whisperx_alignment or {}).get("lines"),
         "characters": [asdict(profile) for profile in plan.character_bank],
         "scenes": _scene_context(plan, frame_samples),
+        "audio_review_requirements": [
+            "gentle bedtime tone",
+            "clear pleasant vocal",
+            "no harsh or scary sounds",
+            "music not overpowering lyrics",
+            "scene mood fits sung line",
+            "child-safe nursery-rhyme delivery",
+            "exact planner words preserved including repeated words",
+        ],
         "acceptance_thresholds": {
             "minimum_visual_safety": 0.9,
             "minimum_story_alignment": 0.8,
