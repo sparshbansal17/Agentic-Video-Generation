@@ -1,0 +1,62 @@
+{
+  "story_name": "mary_manual_4clip_storymem",
+  "story_overview": "A hand-authored four-clip StoryMem script for Mary Had a Little Lamb. Each scene maps to one lyric line from the opening verse, keeps the same kind child and small fluffy lamb, and avoids generated text inside the image.",
+  "scenes": [
+    {
+      "scene_num": 1,
+      "lyric_line": "Mary had a little lamb,",
+      "video_prompts": [
+        "Scene 1 of 4, toddler-safe nursery-rhyme animation: a cheerful child named Mary in a soft blue dress kneels beside the same small fluffy white lamb in a sunny rounded meadow. A low wooden fence, wildflowers, and a cozy red schoolhouse roof sit in the background, with warm morning light and soft green grass in the foreground. The lamb nuzzles Mary's hand while Mary smiles gently. Camera makes a slow push from the flowers toward Mary and the lamb, pastel storybook 3D style, rounded shapes, no generated text, no letters, no captions, no inset frame, no scary elements."
+      ],
+      "first_frame_prompt": [
+        "Mary in soft blue dress kneels beside small fluffy white lamb in sunny rounded meadow, wildflowers and schoolhouse roof behind, no text."
+      ],
+      "cut": [
+        true
+      ],
+      "subtitle_text": "Mary had a little lamb,"
+    },
+    {
+      "scene_num": 2,
+      "lyric_line": "Its fleece was white as snow,",
+      "video_prompts": [
+        "Scene 2 of 4, toddler-safe nursery-rhyme animation: close peaceful meadow shot of the same little lamb standing beside Mary, its soft white fleece glowing like fresh snow in gentle sunlight. Mary holds a small ribbon brush and looks at the lamb with warm care while white daisies and pale clouds echo the fleece color. Camera glides in a slow side move at lamb height, soft focus background, cream, sky blue, and spring green palette, rounded storybook 3D style, no generated text, no letters, no captions, no inset frame, no scary elements."
+      ],
+      "first_frame_prompt": [
+        "Close shot of small fluffy white lamb beside Mary, white daisies and pale clouds, warm sunlight, no text."
+      ],
+      "cut": [
+        true
+      ],
+      "subtitle_text": "Its fleece was white as snow,"
+    },
+    {
+      "scene_num": 3,
+      "lyric_line": "And everywhere that Mary went,",
+      "video_prompts": [
+        "Scene 3 of 4, toddler-safe nursery-rhyme animation: Mary walks along a curved storybook path toward the little red schoolhouse, carrying a tiny book bag, while the same fluffy white lamb trots happily a few steps behind her. Rounded trees, soft flowers, and a safe wooden fence guide the path through the background. Camera tracks gently beside them at walking pace, clear full-body staging, warm morning light, pastel 3D storybook style, no generated text, no letters, no captions, no inset frame, no scary elements."
+      ],
+      "first_frame_prompt": [
+        "Mary walking on curved path toward red schoolhouse, small white lamb following, rounded trees and fence, no text."
+      ],
+      "cut": [
+        true
+      ],
+      "subtitle_text": "And everywhere that Mary went,"
+    },
+    {
+      "scene_num": 4,
+      "lyric_line": "The lamb was sure to go.",
+      "video_prompts": [
+        "Scene 4 of 4, toddler-safe nursery-rhyme animation: the same fluffy white lamb peeks around Mary at the schoolhouse gate, clearly following her with a happy wagging tail and gentle smile. Mary turns back and laughs softly, holding the gate open in a kind welcoming gesture. The red schoolhouse, rounded fence, meadow flowers, and blue sky create a complete cheerful ending. Camera eases into a calm wide shot, warm soft light, rounded storybook 3D style, no generated text, no letters, no captions, no inset frame, no scary elements."
+      ],
+      "first_frame_prompt": [
+        "Small fluffy white lamb peeking around Mary at schoolhouse gate, Mary smiling and holding gate open, no text."
+      ],
+      "cut": [
+        true
+      ],
+      "subtitle_text": "The lamb was sure to go."
+    }
+  ]
+}

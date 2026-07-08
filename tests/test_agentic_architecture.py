@@ -360,10 +360,11 @@ class AgenticArchitectureTests(unittest.TestCase):
                     "scenes": [
                         {
                             "description": (
-                                "Opening shot: a wide shot of the night sky with a bright star shining. "
-                                "The child is looking up at the star with wonder. Camera moves slightly to the right. "
-                                "Visual style: bright, warm, and inviting. Lighting: soft, warm, and gentle. "
-                                "Color palette: soft pinks, blues, and purples. Mood: calm and peaceful. "
+                                "Opening shot: a small handmade storybook landscape inspired by the input prompt, "
+                                "with rounded paths, toy-like props, warm lights in the distance, and a clear main "
+                                "subject area. The scene shows the current lyric meaning with soft celestial shapes. "
+                                "Camera moves slightly to the right. Visual style: bright, warm, and inviting. "
+                                "Lighting: soft, warm, and gentle. Color palette: soft pinks, blues, and purples. Mood: calm and peaceful. "
                                 "Continuity: the star must be visible in each shot. No text or dialogue."
                             ),
                             "camera": "wide shot, camera angle: slightly right",
@@ -381,7 +382,89 @@ class AgenticArchitectureTests(unittest.TestCase):
         plan = PromptPlannerAgent(backend).plan(NurseryRhymeInput(topic_or_name="Twinkle Twinkle Little Star"))
 
         self.assertIn("tiny warm star lights", plan.scenes[0].description)
-        self.assertNotIn("wide shot of the night sky", plan.scenes[0].description)
+        self.assertIn("same tiny rounded golden star", plan.scenes[0].video_prompt)
+        self.assertNotIn("inspired by the input prompt", plan.scenes[0].description)
+        self.assertNotIn("clear main subject area", plan.scenes[0].video_prompt)
+
+    def test_agentic_planner_sanitizes_noisy_camera_notes_for_varied_topics(self):
+        noisy_mary_description = (
+            "Opening shot: a cozy rounded bedroom playroom at night, with a warm nightlight, round window, "
+            "and soft toys, with woolly meadow textures, a little school path, rounded fences, and soft flowers. "
+            "The same small fluffy lamb trots gently beside the child. Medium shot, camera moves smoothly from "
+            "left to right, capturing warmth. Camera angle: slightly above eye level. Shot size: medium. "
+            "Composition: balanced, with Mary and the lamb centered. Lens: medium shot. Color tone: pastel. "
+            "Camera angle: slightly above eye level. Camera movement: smooth from left to right."
+        )
+        backend = MockAgentBackend(
+            responses={
+                "planner": {
+                    "lyrics": [
+                        "Mary had a little lamb",
+                        "Its fleece was white as snow",
+                        "And everywhere that Mary went",
+                        "The lamb was sure to go",
+                    ],
+                    "clip_count": 4,
+                    "target_duration_seconds": 20,
+                    "characters": [{"label": "mary", "description": "same cheerful child Mary"}],
+                    "scenes": [
+                        {"description": noisy_mary_description, "camera": noisy_mary_description},
+                        {"description": noisy_mary_description, "camera": "Medium shot"},
+                        {"description": noisy_mary_description, "camera": "Camera angle: eye level. Lens: medium. Composition: balanced. Camera movement: pan right."},
+                        {"description": noisy_mary_description, "camera": "smooth tracking shot"},
+                    ],
+                    "music_prompt": "soft nursery rhyme",
+                }
+            }
+        )
+
+        plan = PromptPlannerAgent(backend).plan(NurseryRhymeInput(topic_or_name="Mary Had a Little Lamb"))
+        prompts = [scene.video_prompt for scene in plan.scenes]
+
+        self.assertTrue(all(len(prompt) < 900 for prompt in prompts))
+        self.assertTrue(all("StoryMem keyframe memory" in prompt for prompt in prompts))
+        self.assertIn("sunny rounded meadow", plan.scenes[0].description)
+        self.assertIn("curved storybook path", plan.scenes[2].description)
+        self.assertIn("schoolhouse gate", plan.scenes[3].description)
+        self.assertNotIn("cozy rounded bedroom playroom", plan.scenes[0].description)
+        self.assertNotIn("Camera angle: slightly above eye level", prompts[0])
+        self.assertNotIn("Shot size: medium", prompts[0])
+        self.assertLess(
+            max(difflib.SequenceMatcher(None, prompts[index], prompts[index + 1]).ratio()
+                for index in range(len(prompts) - 1)),
+            0.78,
+        )
+
+    def test_fallback_settings_are_topic_aware_beyond_stars(self):
+        lamb_plan = build_production_plan(
+            NurseryRhymeInput(
+                topic_or_name="Mary Had a Little Lamb",
+                lyrics=(
+                    "Mary had a little lamb\n"
+                    "Its fleece was white as snow\n"
+                    "And everywhere that Mary went\n"
+                    "The lamb was sure to go\n"
+                ),
+                clip_count=4,
+                target_duration_seconds=20,
+            )
+        )
+        rain_plan = build_production_plan(
+            NurseryRhymeInput(
+                topic_or_name="rainy nap lullaby",
+                lyrics="Rain taps softly\nPuddles glow\nSleepy windows shine\nDreams drift slow\n",
+                clip_count=4,
+                target_duration_seconds=20,
+            )
+        )
+
+        lamb_descriptions = " ".join(scene.description for scene in lamb_plan.scenes)
+        rain_descriptions = " ".join(scene.description for scene in rain_plan.scenes)
+        self.assertIn("red schoolhouse", lamb_descriptions)
+        self.assertIn("schoolhouse gate", lamb_descriptions)
+        self.assertNotIn("plush-cloud sky above a tiny toy town", lamb_descriptions)
+        self.assertIn("gentle rain", rain_descriptions)
+        self.assertIn("puddle reflections", rain_descriptions)
 
     def test_model_review_normalizer_accepts_scalar_scores(self):
         report = _normalize_model_report(

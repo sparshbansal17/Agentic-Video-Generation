@@ -85,15 +85,52 @@ SCENE_AESTHETIC_PLANS = [
     "watercolor-soft 3D storybook style, delicate highlights, calm blue-gold color harmony",
 ]
 SETTING_FRAMES = [
-    "a bedtime room transformed by the lullaby theme, with a soft foreground prop, a clear main subject area, and a layered background",
-    "a small handmade storybook landscape inspired by the input prompt, with rounded paths, toy-like props, and warm lights in the distance",
-    "a floating dream setting shaped by the current lyric meaning, with soft foreground shapes and a calm open background",
-    "a wide magical miniature world built from the prompt's main imagery, with tiny safe details visible below the characters",
+    "a cozy rounded bedroom playroom at night, with a warm nightlight, round window, and soft toys",
+    "a small handmade storybook landscape, with rounded paths, toy-like props, and warm distant lights",
+    "a floating plush-cloud sky above a tiny toy town, with foreground clouds and open blue space",
+    "a wide magical miniature world, with tiny safe details glowing below the characters",
     "a quiet closing space that returns to the lullaby's core image, with the final subject clearly visible and the background simplified",
     "a gentle outdoor bedtime scene inspired by the topic, with slow-moving natural elements and uncluttered child-safe staging",
     "a cozy interior nook built around the rhyme's main object, with plush textures, soft curtains, and a readable foreground-to-background path",
     "a slow-moving dream corridor of soft shapes from the lyric, arranged for a clear edited video shot rather than a one-shot scene",
 ]
+TOPIC_SETTING_FRAMES = {
+    "star": [
+        "a cozy rounded bedroom playroom at night, with a warm nightlight, round window, and soft toys",
+        "a small handmade storybook landscape, with rounded paths, toy-like props, and warm distant lights",
+        "a floating plush-cloud sky above a tiny toy town, with foreground clouds and open blue space",
+        "a wide magical miniature world, with tiny safe details glowing below the characters",
+        "a quiet closing sky above the bedroom window, with the final star clearly visible and the background simplified",
+    ],
+    "moon": [
+        "a moonlit nursery nook, with layered curtains in the foreground and a round window in the background",
+        "a quiet toy-rooftop village under a pearl moon, with soft chimneys and warm window lights",
+        "a plush cloud balcony in the night sky, with crescent shapes and open blue space",
+        "a sleepy bedside scene washed in moonlight, with blankets and soft toys arranged in clear layers",
+        "a calm closing window view, with the moon large and gentle above a simplified bedtime room",
+    ],
+    "lamb": [
+        "a sunny rounded meadow beside a low wooden fence, with a small red schoolhouse roof in the background",
+        "a close meadow patch with daisies, soft grass, and a rounded fence line behind the characters",
+        "a curved storybook path leading toward a little red schoolhouse, with trees and flowers framing the route",
+        "a friendly schoolhouse gate with meadow flowers in the foreground and the path continuing behind",
+        "a peaceful schoolyard edge with the lamb and child clearly visible against a simple meadow background",
+    ],
+    "rain": [
+        "a warm window nook during gentle rain, with rounded raindrops on glass and cozy toys in the foreground",
+        "a covered garden path with soft puddle reflections and umbrella-like leaves",
+        "a small toy bridge over satin puddles, with warm house lights glowing in the background",
+        "a sleepy bedroom corner where rain patterns shimmer softly across blankets",
+        "a calm closing window scene with the rain slowing and the room warm and uncluttered",
+    ],
+    "boat": [
+        "a moonlit paper-boat stream, with satin ripples in the foreground and rounded banks behind",
+        "a toy river bend with soft reeds, tiny lantern reflections, and open water ahead",
+        "a gentle cloud-reflection cove, with the boat centered and shore shapes layered behind",
+        "a quiet bedtime harbor made of plush shapes, with warm lights and smooth water",
+        "a calm closing shore where the small boat rests safely under soft moonlight",
+    ],
+}
 
 PLANNER_DECISION_SCHEMA: dict[str, Any] = {
     "name": "lullaby_planner_decision",
@@ -213,7 +250,38 @@ def _scene_aesthetic_plan(index: int) -> str:
     return SCENE_AESTHETIC_PLANS[(index - 1) % len(SCENE_AESTHETIC_PLANS)]
 
 
-def _setting_frame(index: int) -> str:
+def _setting_family(topic: str, lyric_line: str) -> str | None:
+    topic_set = set(_topic_words(topic))
+    line_set = _text_words(lyric_line)
+    topic_family_terms = [
+        ("lamb", {"lamb", "lambs", "sheep", "fleece"}),
+        ("rain", {"rain", "rainy", "raindrop", "raindrops", "puddle", "puddles"}),
+        ("boat", {"boat", "boats", "row", "stream", "river"}),
+        ("moon", {"moon", "moons", "crescent", "moonlight"}),
+        ("star", {"star", "stars", "twinkle", "sparkle", "sparkles", "sparkling"}),
+    ]
+    for family, terms in topic_family_terms:
+        if terms & topic_set:
+            return family
+    combined = topic_set | line_set
+    if {"lamb", "lambs", "sheep", "fleece"} & combined:
+        return "lamb"
+    if {"rain", "rainy", "raindrop", "raindrops", "puddle", "puddles"} & combined:
+        return "rain"
+    if {"boat", "boats", "row", "stream", "river"} & combined:
+        return "boat"
+    if {"moon", "moons", "crescent", "moonlight"} & combined:
+        return "moon"
+    if {"star", "stars", "twinkle", "sparkle", "sparkles", "sparkling", "shine", "shines"} & combined:
+        return "star"
+    return None
+
+
+def _setting_frame(topic: str, lyric_line: str, index: int) -> str:
+    family = _setting_family(topic, lyric_line)
+    frames = TOPIC_SETTING_FRAMES.get(family or "")
+    if frames:
+        return frames[(index - 1) % len(frames)]
     return SETTING_FRAMES[(index - 1) % len(SETTING_FRAMES)]
 
 
@@ -247,26 +315,21 @@ def _topic_subject(topic: str) -> str:
 def _setting_details(topic: str, lyric_line: str, index: int, clip_count: int) -> str:
     topic_terms = _topic_words(topic)
     lower_line = lyric_line.lower()
-    frame = _setting_frame(index)
+    frame = _setting_frame(topic, lyric_line, index)
     motif = "the lullaby's main image"
     if "star" in topic_terms or "twinkle" in topic_terms or "star" in lower_line:
-        motif = "tiny warm star lights, hanging mobiles, telescope-shaped toys, and soft celestial patterns"
+        motif = "tiny warm star lights, telescope toys, and soft celestial patterns"
     elif "moon" in topic_terms or "moon" in lower_line:
         motif = "pearl moon shapes, sleepy silver-blue cushions, and curved crescent decorations"
     elif "lamb" in topic_terms or "sheep" in topic_terms or "lamb" in lower_line or "sheep" in lower_line:
         motif = "woolly meadow textures, a little school path, rounded fences, and soft cream-colored flowers"
-    elif "rain" in topic_terms or "rain" in lower_line:
+    elif "rain" in topic_terms or "rainy" in topic_terms or "rain" in lower_line or "puddle" in lower_line:
         motif = "gentle raindrop reflections, umbrella-like leaves, and warm window light"
     elif "boat" in topic_terms or "row" in topic_terms or "stream" in lower_line:
         motif = "paper boats, satin water ripples, and rounded shore shapes"
     elif topic_terms:
         motif = f"soft child-safe props inspired by {' '.join(topic_terms[:4])}"
-    progression = "opening introduction"
-    if index == clip_count:
-        progression = "sleepy resolution"
-    elif index > 1:
-        progression = f"story beat {index} with a new location and staging"
-    return f"{frame}, using {motif}; this is the {progression}"
+    return f"{frame}, with {motif}"
 
 
 def _line_visual_action(topic: str, line: str, index: int, clip_count: int) -> str:
@@ -280,19 +343,19 @@ def _line_visual_action(topic: str, line: str, index: int, clip_count: int) -> s
             return "turns softly so its cream-colored wool catches the warm moonlit glow like plush fabric"
         return "trots gently beside the child, nuzzling a soft blanket while the scene stays quiet and safe"
     if {"wonder", "who", "what", "why", "where"} & words:
-        return "guides the child through a quiet dream as the child points upward with calm curiosity"
+        return "guides the child through a quiet dream as the child points upward"
     if {"diamond", "bright", "light"} & words:
-        return "briefly becomes a faceted glow, then returns to its cute rounded form and sends one final soft sparkle"
+        return "sparkles like a soft toy diamond, then smiles warmly"
     if {"above", "high", "sky", "world"} & words:
-        return "rises higher above the soft world below while clouds drift slowly under the characters"
+        return "rises above the toy town while plush clouds drift below"
     if {"twinkle", "sparkle", "shine", "star"} & words:
-        return "pulses with soft friendly light, leaving tiny glitter shapes that fade before becoming readable symbols"
+        return "pulses with soft friendly light and tiny fading sparkles"
     if {"little", "small", "tiny"} & words:
         return "bounces gently like a lantern while sleepy animals peek out with warm curious expressions"
     if {"sleep", "dream", "goodnight", "hush", "lullaby"} & words:
-        return "settles the scene into sleep as blankets, curtains, and night clouds move with barely visible softness"
+        return "settles the scene into sleep with drifting blankets and clouds"
     if {"twinkle", "sparkle", "shine", "star"} & topic_words:
-        return "moves through the shot as a warm guiding light, changing the scene through gentle illumination"
+        return "glides through the shot as a warm guiding light"
     if index == clip_count:
         return "returns the bedtime journey to a peaceful closing image, with the characters calm and ready for sleep"
     return "creates a distinct gentle action that visualizes the lyric meaning through movement, expression, and setting"
@@ -322,6 +385,12 @@ def _rich_scene_description(topic: str, lyric_line: str, index: int, clip_count:
 def _scene_description_is_specific(text: str) -> bool:
     lowered = text.lower()
     word_count = len(text.split())
+    camera_terms = len(
+        re.findall(
+            r"\b(camera|camera angle|camera movement|shot size|composition|lens|color tone|lighting)\b",
+            lowered,
+        )
+    )
     required_craft = ["opening shot", "camera", "soft"]
     has_action = any(word in lowered for word in ["moves", "drifts", "floats", "rises", "glows", "smiles", "walks", "pulls", "dollies", "cranes", "orbits", "tilts"])
     has_setting = any(word in lowered for word in ["nursery", "window", "village", "cloud", "sky", "bedroom", "meadow", "forest", "rooftop", "world"])
@@ -347,10 +416,19 @@ def _scene_description_is_specific(text: str) -> bool:
             "child is looking up",
             "camera moves slightly",
             "visual style: bright",
+            "inspired by the input prompt",
+            "from the input prompt",
+            "the current lyric meaning",
+            "the prompt's main imagery",
+            "the lullaby theme",
+            "clear main subject area",
+            "generic lullaby scene",
         ]
     )
     return (
         word_count >= 60
+        and word_count <= 130
+        and camera_terms <= 5
         and all(term in lowered for term in required_craft)
         and has_action
         and has_setting
@@ -381,6 +459,67 @@ def _storyboard_action(topic: str, lyric_line: str, index: int, clip_count: int,
     )
 
 
+def _clean_sentence(text: str) -> str:
+    return " ".join(str(text or "").replace("\n", " ").split()).strip(" ,;.")
+
+
+def _sentence_case(text: str) -> str:
+    text = _clean_sentence(text)
+    if not text:
+        return text
+    return text[0].upper() + text[1:]
+
+
+def _strip_scene_production_notes(description: str) -> str:
+    scene_text = _clean_sentence(description)
+    if scene_text.startswith("Opening shot:"):
+        scene_text = scene_text[len("Opening shot:"):].strip()
+    scene_text = scene_text.replace(" Camera ", ". Camera ")
+    split_pattern = re.compile(
+        r"(?i)(?:\.\s+)?(?:camera|medium shot|wide shot|close-up shot|closeup shot|shot size|composition|lens|"
+        r"color tone|lighting|time of day|camera angle|camera movement|visual style|stylization)\b"
+    )
+    match = split_pattern.search(scene_text)
+    if match:
+        scene_text = scene_text[: match.start()].strip(" ,;.")
+    if len(scene_text) > 280:
+        scene_text = scene_text[:280].rsplit(" ", 1)[0].rstrip(" ,;.")
+    return _sentence_case(scene_text) + "."
+
+
+def _camera_is_noisy(camera: str) -> bool:
+    lowered = camera.lower()
+    if not lowered.strip():
+        return True
+    if len(camera.split()) > 18 or len(camera) > 130:
+        return True
+    if lowered in {"medium shot", "wide shot", "close-up", "close up", "slow push", "gentle pan", "soft fade"}:
+        return True
+    repeated_labels = len(
+        re.findall(
+            r"\b(camera angle|camera movement|shot size|composition|lens|color tone|lighting|medium shot)\b",
+            lowered,
+        )
+    )
+    return repeated_labels > 2
+
+
+def _normalize_camera(camera: str, index: int) -> str:
+    cleaned = _clean_sentence(camera)
+    if _camera_is_noisy(cleaned):
+        return _scene_camera_plan(index)
+    cleaned = re.sub(
+        r"(?i)\b(camera angle|camera movement|shot size|composition|lens|color tone|lighting)\s*:\s*",
+        "",
+        cleaned,
+    )
+    if not cleaned.lower().startswith("camera"):
+        cleaned = f"Camera {cleaned}"
+    if len(cleaned) > 120:
+        cleaned = cleaned[:120].rsplit(" ", 1)[0].rstrip(" ,;.")
+    return _sentence_case(cleaned)
+
+
 def _storyboard_prompt(
     *,
     index: int,
@@ -392,22 +531,17 @@ def _storyboard_prompt(
 ) -> str:
     start = (index - 1) * STORYMEM_CLIP_SECONDS
     end = index * STORYMEM_CLIP_SECONDS
-    text_guard = "no generated text, letters, captions, or readable words"
-    scene_text = description
-    if scene_text.startswith("Opening shot:"):
-        scene_text = scene_text[len("Opening shot:"):].strip()
-    scene_text = " ".join(scene_text.split())
-    scene_text = scene_text.replace(" Camera ", ". Camera ")
-    if len(scene_text) > 220:
-        scene_text = scene_text[:220].rsplit(" ", 1)[0].rstrip(" ,;") + "."
+    text_guard = "no generated text or readable words"
+    scene_text = _strip_scene_production_notes(description)
+    camera_text = _normalize_camera(camera, index)
     aesthetic = _shot_pattern(index)
     style = visual_style
     if len(style) > 90:
         style = style[:90].rsplit(" ", 1)[0].rstrip(" ,;")
     return (
         f"Scene {index} of {clip_count}, [{start:.1f}-{end:.1f}s], toddler-safe lullaby animation: "
-        f"{scene_text} {camera}. "
-        f"{style}; {aesthetic}; soft bedtime mood, rounded shapes, gentle motion, full-frame composition. "
+        f"{scene_text} {camera_text}. "
+        f"{style}; {aesthetic}; soft bedtime mood, rounded shapes, gentle motion. "
         "Use StoryMem keyframe memory for character/style consistency; this prompt controls the new scene layout. "
         f"No dialogue or background music, {text_guard}, no picture-in-picture, no inset frame, no scary elements."
     )
@@ -513,6 +647,12 @@ def _planner_prompt() -> str:
         "camera angle, subject distance, foreground/background layout, and motion. Use hard edited cuts between "
         "lyric-scene clips unless the user explicitly asks for a single continuous one-shot. Do not repeat generic "
         "camera language such as the same medium shot for all clips. "
+        "Keep each scene description between 70 and 120 words. Keep the camera field to one concise camera-movement "
+        "sentence under 18 words. Do not place shot size, lens, color tone, composition, or repeated camera labels "
+        "inside the camera field; those belong in the scene description once. "
+        "Choose settings from the rhyme's own world. Do not mix unrelated default bedtime locations into a topic "
+        "where they do not belong; for example, a lamb rhyme should use meadow, path, fence, and schoolhouse staging, "
+        "not a bedroom or cloud-sky scene unless the user asked for a dream adaptation. "
         "Each scene description must be a concrete paragraph in this format: 'Opening shot: [specific setting with "
         "foreground/background]. [specific subject] [specific action]. Camera [specific movement]. [visual style, "
         "lighting, color palette, mood]. [continuity and child-safety constraints].' The description must be rich "
