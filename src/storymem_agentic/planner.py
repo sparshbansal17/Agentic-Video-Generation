@@ -294,7 +294,7 @@ def _setting_family(topic: str, lyric_line: str) -> str | None:
     topic_set = set(_topic_words(topic))
     line_set = _text_words(lyric_line)
     topic_family_terms = [
-        ("lamb", {"lamb", "lambs", "sheep", "fleece"}),
+        ("lamb", {"mary", "lamb", "lambs", "sheep", "fleece"}),
         ("rain", {"rain", "rainy", "raindrop", "raindrops", "puddle", "puddles"}),
         ("boat", {"boat", "boats", "row", "stream", "river"}),
         ("clock", {"hickory", "dickory", "dock", "clock", "mouse"}),
@@ -305,7 +305,7 @@ def _setting_family(topic: str, lyric_line: str) -> str | None:
         if terms & topic_set:
             return family
     combined = topic_set | line_set
-    if {"lamb", "lambs", "sheep", "fleece"} & combined:
+    if {"mary", "lamb", "lambs", "sheep", "fleece"} & combined:
         return "lamb"
     if {"rain", "rainy", "raindrop", "raindrops", "puddle", "puddles"} & combined:
         return "rain"
@@ -369,11 +369,24 @@ def _character_source_path(rhyme: NurseryRhymeInput) -> str | None:
 
 def _profile_terms(profile: CharacterProfile) -> set[str]:
     values = [profile.label, profile.role or "", profile.description, *profile.visual_anchors]
-    return set().union(*(_text_words(value.replace("_", " ")) for value in values if value))
+    return set().union(*(_semantic_keywords(value.replace("_", " ")) for value in values if value))
 
 
 def _select_character_profiles(bank: list[CharacterProfile], topic: str, lyric_line: str) -> list[CharacterProfile]:
-    wanted = _text_words(topic) | _text_words(lyric_line)
+    wanted = _semantic_keywords(topic) | _semantic_keywords(lyric_line)
+    family = _setting_family(topic, lyric_line)
+    family_terms = {
+        "clock": {"clock", "mouse", "mice"},
+        "boat": {"boat", "duck", "river", "stream", "animal", "friend"},
+        "lamb": {"lamb", "sheep", "mary", "meadow"},
+        "rain": {"rain", "child", "garden", "raincoat"},
+        "star": {"star", "sleepy", "sky"},
+        "moon": {"moon", "sleepy", "sky"},
+    }.get(family or "", set())
+    if family_terms:
+        family_matches = [profile for profile in bank if family_terms & _profile_terms(profile)]
+        if family_matches:
+            return family_matches[:2]
     scored: list[tuple[int, CharacterProfile]] = []
     for profile in bank:
         terms = _profile_terms(profile)
@@ -666,9 +679,13 @@ def _camera_is_noisy(camera: str) -> bool:
     lowered = camera.lower()
     if not lowered.strip():
         return True
+    if re.match(r"^(medium|wide|close-up|closeup|overhead|low-angle|high-angle)\s+shot\b", lowered):
+        return True
     if len(camera.split()) > 18 or len(camera) > 130:
         return True
     if lowered in {"medium shot", "wide shot", "close-up", "close up", "slow push", "gentle pan", "soft fade"}:
+        return True
+    if "smooth camera movement" in lowered or "camera moves from left to right" in lowered:
         return True
     repeated_labels = len(
         re.findall(
@@ -908,7 +925,7 @@ def _semantic_keywords(text: str) -> set[str]:
         "a", "an", "and", "are", "as", "be", "come", "do", "for", "go", "had", "has", "how", "i", "in", "is",
         "it", "its", "like", "little", "now", "of", "on", "so", "the", "this", "to", "up", "was", "what", "with",
         "you", "your", "away", "come", "again", "another", "day", "want", "sure",
-        "life", "but", "merrily", "merry", "hickory", "dickory", "dock",
+        "life", "but", "merrily", "merry", "hickory", "dickory", "dock", "hums", "hum", "gentle", "tune",
         "line", "one", "two", "three", "four", "five", "six", "seven", "eight",
     }
     aliases = {
@@ -916,6 +933,7 @@ def _semantic_keywords(text: str) -> set[str]:
         "twinkle": "star",
         "sparkle": "star",
         "shining": "star",
+        "moonlight": "moon",
         "ran": "run",
         "running": "run",
         "went": "follow",
