@@ -29,6 +29,11 @@ FFMPEG_BIN="${FFMPEG_BIN:-/home/bansa125/bin/ffmpeg}"
 PLANNER_MODEL="${PLANNER_MODEL:-Qwen/Qwen2-VL-7B-Instruct}"
 REVIEWER_MODEL="${REVIEWER_MODEL:-Qwen/Qwen2-VL-7B-Instruct}"
 SEED="${SEED:-720}"
+CHARACTER_BANK="${CHARACTER_BANK:-}"
+CHARACTER_BANK_ARGS=()
+if [ -n "${CHARACTER_BANK}" ]; then
+  CHARACTER_BANK_ARGS=(--character-bank "${CHARACTER_BANK}")
+fi
 
 module load python
 source "${VENV_DIR}/bin/activate"
@@ -69,6 +74,7 @@ python -m storymem_agentic.cli iterate \
   --clip-count 4 \
   --max-iterations 2 \
   --seed "${SEED}" \
+  "${CHARACTER_BANK_ARGS[@]}" \
   --storymem-dir "${STORYMEM_DIR}" \
   --t2v-model-path "${T2V_MODEL_PATH}" \
   --i2v-model-path "${I2V_MODEL_PATH}" \

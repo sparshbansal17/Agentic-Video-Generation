@@ -10,7 +10,7 @@ from storymem_agentic.alignment import analyze_whisperx_alignment
 from storymem_agentic.agents import MockAgentBackend
 from storymem_agentic.feedback import apply_revision_plan, build_revision_plan
 from storymem_agentic.media_evaluator import evaluate_iteration
-from storymem_agentic.planner import PromptPlannerAgent, build_production_plan
+from storymem_agentic.planner import PromptPlannerAgent, build_production_plan, validate_plan_semantics
 from storymem_agentic.orchestrator import default_storymem_dir, run_workflow
 from storymem_agentic.review_agents import _normalize_model_report
 from storymem_agentic.schemas import EvaluationReport, NurseryRhymeInput, ReviewerReport, RevisionPlan
@@ -546,6 +546,131 @@ class AgenticArchitectureTests(unittest.TestCase):
             self.assertEqual(plan.character_bank[0].label, "moon_bear")
             self.assertNotIn("moon_bear", plan.scenes[0].video_prompt)
             self.assertEqual(plan.character_bank[0].reference_image_paths, ["refs/moon_bear.png"])
+
+    def test_character_bank_profiles_are_selected_into_scene_descriptions(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            bank = Path(tmp) / "characters.json"
+            bank.write_text(
+                json.dumps(
+                    {
+                        "characters": [
+                            {
+                                "id": "rain_child",
+                                "role": "child",
+                                "description": "same child in yellow raincoat with red boots",
+                                "visual_anchors": ["yellow raincoat", "red boots"],
+                                "allowed_variants": ["hood up", "hood down"],
+                                "negative_constraints": ["no text on coat"],
+                            }
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            plan = build_production_plan(
+                NurseryRhymeInput(
+                    topic_or_name="Rain Rain Go Away",
+                    lyrics="Rain, rain, go away\nCome again another day\n",
+                    clip_count=2,
+                    character_bank_path=str(bank),
+                )
+            )
+
+            self.assertEqual(plan.character_bank[0].role, "child")
+            self.assertIn("same child in yellow raincoat with red boots", plan.scenes[0].description)
+            self.assertIn("yellow raincoat", plan.scenes[1].description)
+            self.assertTrue(validate_plan_semantics(plan)["passed"])
+
+    def test_planner_revision_uses_structured_feedback_before_compilation(self):
+        bad_scene = (
+            "Opening shot: a small umbrella sits in the rain beside a window. The umbrella barely moves. "
+            "Camera slowly pushes in. Soft pastel 3D animation, warm lamp glow, calm mood. "
+            "No written words, no scary shadows, child-safe magical atmosphere."
+        )
+        backend = MockAgentBackend(
+            responses={
+                "planner": {
+                    "lyrics": ["Rain, rain, go away", "Children want to play"],
+                    "clip_count": 2,
+                    "target_duration_seconds": 10,
+                    "characters": [{"label": "rain_child", "description": "same child in yellow raincoat"}],
+                    "scenes": [
+                        {"description": bad_scene, "camera": "slow push"},
+                        {"description": bad_scene, "camera": "slow push"},
+                    ],
+                    "music_prompt": "soft rain lullaby",
+                },
+                "planner_revision_1": {
+                    "lyrics": ["Rain, rain, go away", "Children want to play"],
+                    "clip_count": 2,
+                    "target_duration_seconds": 10,
+                    "characters": [{"label": "rain_child", "description": "same child in yellow raincoat"}],
+                    "scenes": [
+                        {
+                            "description": (
+                                "Opening shot: a warm window nook during gentle rain, with rounded raindrops in "
+                                "the foreground and cozy toys behind the glass. The same child in yellow raincoat "
+                                "waves gently toward the clouds as puddles shimmer below. Camera makes a slow "
+                                "diagonal push toward the window. Soft pastel 3D animation, warm practical glow, "
+                                "calm blue-and-gold palette. No written words, no scary shadows, child-safe mood."
+                            ),
+                            "camera": "slow diagonal push",
+                        },
+                        {
+                            "description": (
+                                "Opening shot: a covered garden path with soft puddle reflections in the foreground "
+                                "and a dry play area opening in the background. The same child in yellow raincoat "
+                                "steps toward bright toy blocks as the rain clears. Camera glides sideways at a "
+                                "sleepy walking pace. Rounded storybook animation, warm window light, gentle motion. "
+                                "No written words, no scary shadows, child-safe mood."
+                            ),
+                            "camera": "gentle side glide",
+                        },
+                    ],
+                    "music_prompt": "soft rain lullaby",
+                },
+            }
+        )
+
+        plan = PromptPlannerAgent(backend, max_plan_revisions=1).plan(NurseryRhymeInput(topic_or_name="Rain Rain Go Away"))
+
+        self.assertEqual(len(plan.scenes), 2)
+        self.assertIn("dry play area", plan.scenes[1].description)
+        self.assertTrue(validate_plan_semantics(plan)["passed"])
+
+    def test_generate_blocks_when_agentic_plan_fails_semantic_validation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            planner_script = tmp_path / "unsafe_planner.py"
+            planner_script.write_text(
+                "import json, sys\n"
+                "json.load(sys.stdin)\n"
+                "print(json.dumps({"
+                "'lyrics':['Rock-a-bye baby','Down will come baby'],"
+                "'clip_count':2,"
+                "'target_duration_seconds':10,"
+                "'characters':[{'label':'baby','description':'same sleeping baby'}],"
+                "'scenes':["
+                "{'description':'Opening shot: a cradle hangs high in a dark tree while the branch breaks. The baby falls downward through the frame. Camera tilts down quickly. Soft animation, shadowy night, dramatic motion. No written words, no scary shadows, child-safe mood.','camera':'quick downward tilt'},"
+                "{'description':'Opening shot: the cradle and baby fall toward the ground below the tree. Leaves rush past in the foreground and the ground fills the background. Camera follows the fall. Soft animation, dramatic night, no written words, child-safe mood.','camera':'follow the fall'}"
+                "],"
+                "'music_prompt':'soft lullaby'"
+                "}))\n",
+                encoding="utf-8",
+            )
+            with self.assertRaises(ValueError):
+                run_workflow(
+                    topic_or_name="Rock-a-bye Baby",
+                    output_dir=tmp_path / "blocked",
+                    mode="generate",
+                    planner_backend="command",
+                    planner_command=f"{sys.executable} {planner_script}",
+                    generate_audio=False,
+                    execute_video=False,
+                    max_plan_revisions=0,
+                )
+
 
     def test_whisperx_alignment_flags_timing_drift(self):
         result = analyze_whisperx_alignment(

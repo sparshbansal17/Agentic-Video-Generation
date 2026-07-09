@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import difflib
 from pathlib import Path
 from typing import Any
 
@@ -130,6 +131,13 @@ TOPIC_SETTING_FRAMES = {
         "a quiet bedtime harbor made of plush shapes, with warm lights and smooth water",
         "a calm closing shore where the small boat rests safely under soft moonlight",
     ],
+    "clock": [
+        "a cozy oversized wooden clock nook, with brass clock hands in the foreground and soft cushions below",
+        "a rounded nursery mantel clock, with carved numbers blurred into shapes and warm lamplight behind",
+        "a close clock-face platform, with the tiny bell above and plush moonlit curtains in the background",
+        "a safe padded clock base, with a curved wooden ramp and soft blankets waiting below",
+        "a calm closing clock corner, with the mouse resting beside the clock under warm bedtime light",
+    ],
 }
 
 PLANNER_DECISION_SCHEMA: dict[str, Any] = {
@@ -146,27 +154,59 @@ PLANNER_DECISION_SCHEMA: dict[str, Any] = {
     },
 }
 
+PLAN_CRITIC_SCHEMA: dict[str, Any] = {
+    "name": "lullaby_plan_critic_report",
+    "type": "object",
+    "required": ["passed", "issues"],
+    "properties": {
+        "passed": {"type": "boolean"},
+        "issues": {"type": "array", "items": {"type": "object"}},
+        "scores": {"type": "object"},
+        "revision_notes": {"type": "array", "items": {"type": "string"}},
+    },
+}
+
+
+def _load_structured_file(path: str | Path) -> Any:
+    text = Path(path).read_text(encoding="utf-8")
+    if str(path).lower().endswith((".yaml", ".yml")):
+        try:
+            import yaml  # type: ignore[import-not-found]
+        except ImportError as exc:
+            raise ValueError("YAML character banks require PyYAML; use JSON or install PyYAML") from exc
+        return yaml.safe_load(text)
+    return json.loads(text)
+
+
+def _profile_from_item(item: dict[str, Any], index: int) -> CharacterProfile | None:
+    label = item.get("id") or item.get("label") or item.get("name")
+    description = item.get("visual_description") or item.get("description")
+    if not label or not description:
+        return None
+    return CharacterProfile(
+        label=str(label),
+        description=_clean_sentence(str(description))[:220],
+        role=str(item.get("role")) if item.get("role") else None,
+        visual_anchors=[str(value) for value in item.get("visual_anchors", item.get("anchors", []))],
+        allowed_variants=[str(value) for value in item.get("allowed_variants", [])],
+        continuity_constraints=[str(value) for value in item.get("continuity_constraints", [])],
+        negative_constraints=[str(value) for value in item.get("negative_constraints", item.get("avoid", []))],
+        reference_image_paths=[str(value) for value in item.get("reference_image_paths", [])],
+        voice_notes=item.get("voice_notes") or item.get("personality_notes"),
+    )
+
 
 def _character_bank(visual_style: str, character_db_path: str | None = None) -> list[CharacterProfile]:
     if character_db_path:
-        data = json.loads(Path(character_db_path).read_text(encoding="utf-8"))
+        data = _load_structured_file(character_db_path)
         raw_profiles = data.get("characters", data if isinstance(data, list) else [])
         profiles = []
-        for item in raw_profiles:
-            label = item.get("id") or item.get("label") or item.get("name")
-            description = item.get("visual_description") or item.get("description")
-            if not label or not description:
+        for index, item in enumerate(raw_profiles, start=1):
+            if not isinstance(item, dict):
                 continue
-            profiles.append(
-                CharacterProfile(
-                    label=str(label),
-                    description=str(description),
-                    continuity_constraints=list(item.get("continuity_constraints", [])),
-                    negative_constraints=list(item.get("negative_constraints", [])),
-                    reference_image_paths=list(item.get("reference_image_paths", [])),
-                    voice_notes=item.get("voice_notes") or item.get("personality_notes"),
-                )
-            )
+            profile = _profile_from_item(item, index)
+            if profile:
+                profiles.append(profile)
         if profiles:
             return profiles
 
@@ -257,6 +297,7 @@ def _setting_family(topic: str, lyric_line: str) -> str | None:
         ("lamb", {"lamb", "lambs", "sheep", "fleece"}),
         ("rain", {"rain", "rainy", "raindrop", "raindrops", "puddle", "puddles"}),
         ("boat", {"boat", "boats", "row", "stream", "river"}),
+        ("clock", {"hickory", "dickory", "dock", "clock", "mouse"}),
         ("moon", {"moon", "moons", "crescent", "moonlight"}),
         ("star", {"star", "stars", "twinkle", "sparkle", "sparkles", "sparkling"}),
     ]
@@ -270,6 +311,8 @@ def _setting_family(topic: str, lyric_line: str) -> str | None:
         return "rain"
     if {"boat", "boats", "row", "stream", "river"} & combined:
         return "boat"
+    if {"hickory", "dickory", "dock", "clock", "mouse", "mice"} & combined:
+        return "clock"
     if {"moon", "moons", "crescent", "moonlight"} & combined:
         return "moon"
     if {"star", "stars", "twinkle", "sparkle", "sparkles", "sparkling", "shine", "shines"} & combined:
@@ -305,11 +348,54 @@ def _topic_subject(topic: str) -> str:
         return "the same smiling crescent moon with a warm pearl glow"
     if "lamb" in meaningful:
         return "the same small fluffy lamb with a ribbon-soft collar"
+    if "mary" in meaningful:
+        return "the same small fluffy lamb with a ribbon-soft collar beside Mary"
     if "sheep" in meaningful:
         return "the same sleepy woolly sheep with rounded toy-like features"
+    if "hickory" in meaningful or "clock" in meaningful or "mouse" in meaningful:
+        return "the same tiny rounded clock mouse beside a cozy wooden clock"
+    if "boat" in meaningful or "row" in meaningful:
+        return "the same tiny boat and friendly plush river companion"
+    if "rain" in meaningful:
+        return "the same raincoat child waiting for the gentle rain to clear"
     if "baby" in meaningful or "hush" in meaningful:
         return "the same sleepy baby-safe bedtime child and plush companion"
     return f"a friendly magical guide inspired by {' '.join(meaningful[:4])}"
+
+
+def _character_source_path(rhyme: NurseryRhymeInput) -> str | None:
+    return rhyme.character_bank_path or rhyme.character_db_path
+
+
+def _profile_terms(profile: CharacterProfile) -> set[str]:
+    values = [profile.label, profile.role or "", profile.description, *profile.visual_anchors]
+    return set().union(*(_text_words(value.replace("_", " ")) for value in values if value))
+
+
+def _select_character_profiles(bank: list[CharacterProfile], topic: str, lyric_line: str) -> list[CharacterProfile]:
+    wanted = _text_words(topic) | _text_words(lyric_line)
+    scored: list[tuple[int, CharacterProfile]] = []
+    for profile in bank:
+        terms = _profile_terms(profile)
+        score = len(wanted & terms)
+        if score:
+            scored.append((score, profile))
+    if scored:
+        return [profile for _, profile in sorted(scored, key=lambda item: item[0], reverse=True)[:2]]
+    return bank[:1]
+
+
+def _character_consistency_sentence(bank: list[CharacterProfile], topic: str, lyric_line: str) -> str:
+    selected = _select_character_profiles(bank, topic, lyric_line)
+    if not selected:
+        return ""
+    descriptions = []
+    for profile in selected:
+        anchor = profile.description
+        if profile.visual_anchors:
+            anchor = f"{anchor}, with {', '.join(profile.visual_anchors[:3])}"
+        descriptions.append(anchor)
+    return "Recurring character reference: " + "; ".join(descriptions) + "."
 
 
 def _setting_details(topic: str, lyric_line: str, index: int, clip_count: int) -> str:
@@ -327,6 +413,8 @@ def _setting_details(topic: str, lyric_line: str, index: int, clip_count: int) -
         motif = "gentle raindrop reflections, umbrella-like leaves, and warm window light"
     elif "boat" in topic_terms or "row" in topic_terms or "stream" in lower_line:
         motif = "paper boats, satin water ripples, and rounded shore shapes"
+    elif "hickory" in topic_terms or "clock" in topic_terms or "mouse" in topic_terms or "clock" in lower_line:
+        motif = "warm wooden clock textures, rounded brass clock hands, plush cushions, and a safe curved ramp"
     elif topic_terms:
         motif = f"soft child-safe props inspired by {' '.join(topic_terms[:4])}"
     return f"{frame}, with {motif}"
@@ -338,10 +426,32 @@ def _line_visual_action(topic: str, line: str, index: int, clip_count: int) -> s
     combined = words | topic_words
     if {"lamb", "sheep"} & combined:
         if {"follow", "went", "go", "sure", "everywhere"} & words:
-            return "follows the child along a rounded storybook path, matching the gentle rhythm without rushing"
+            return "follows Mary along a rounded storybook path, matching the gentle rhythm without rushing"
         if {"white", "snow", "fleece"} & words:
             return "turns softly so its cream-colored wool catches the warm moonlit glow like plush fabric"
-        return "trots gently beside the child, nuzzling a soft blanket while the scene stays quiet and safe"
+        return "trots gently beside Mary, nuzzling a soft blanket while the scene stays quiet and safe"
+    if {"hickory", "dickory", "dock", "clock", "mouse"} & combined:
+        if {"up", "ran", "run"} & words and "clock" in words:
+            return "scurries up a wide safe wooden clock ramp while the brass hands glow softly"
+        if {"struck", "one"} & words:
+            return "pauses beside the glowing clock face as one tiny plush bell rocks once above it"
+        if {"down", "ran", "run"} & words:
+            return "scurries safely down a curved wooden clock ramp toward a soft cushion, never falling"
+        return "peeks around the cozy wooden clock as the nursery rhythm feels like a gentle tick-tock"
+    if {"rain", "rainy", "raindrop", "raindrops", "puddle", "puddles"} & combined:
+        if {"children", "child", "play"} & words:
+            return "steps from the covered path toward a dry play area as puddles sparkle and the rain clears"
+        if {"come", "again", "another", "day"} & words:
+            return "waves goodnight to a tiny raincloud drifting away beyond the warm window"
+        return "watches gentle raindrops slow on the glass while the cozy room brightens"
+    if {"boat", "boats", "row", "stream", "river"} & combined:
+        if {"stream", "down", "gently"} & words:
+            return "glides gently along the calm stream with satin ripples moving safely past rounded reeds"
+        if {"merrily", "merry"} & words:
+            return "bobs happily beside the paper boat while soft lantern reflections dance on the water"
+        if {"life", "dream"} & words:
+            return "drifts into a plush dream harbor where clouds and water reflections settle into sleep"
+        return "rows slowly through the toy river with smooth safe motion and clear open water ahead"
     if {"wonder", "who", "what", "why", "where"} & words:
         return "guides the child through a quiet dream as the child points upward"
     if {"diamond", "bright", "light"} & words:
@@ -361,12 +471,20 @@ def _line_visual_action(topic: str, line: str, index: int, clip_count: int) -> s
     return "creates a distinct gentle action that visualizes the lyric meaning through movement, expression, and setting"
 
 
-def _rich_scene_description(topic: str, lyric_line: str, index: int, clip_count: int, visual_style: str) -> str:
+def _rich_scene_description(
+    topic: str,
+    lyric_line: str,
+    index: int,
+    clip_count: int,
+    visual_style: str,
+    character_bank: list[CharacterProfile] | None = None,
+) -> str:
     subject = _topic_subject(topic)
     setting = _setting_details(topic, lyric_line, index, clip_count)
     action = _line_visual_action(topic, lyric_line, index, clip_count)
     camera = _scene_camera_plan(index)
     aesthetic = _scene_aesthetic_plan(index)
+    character_reference = _character_consistency_sentence(character_bank or [], topic, lyric_line)
     continuity = (
         f"Keep {subject} visually consistent, expressive, cute, rounded, and full-frame rather than framed inside a box."
     )
@@ -378,7 +496,7 @@ def _rich_scene_description(topic: str, lyric_line: str, index: int, clip_count:
         )
     return (
         f"Opening shot: {setting}. {subject.capitalize()} {action}. {camera}. "
-        f"{aesthetic}. {visual_style}. {continuity} {safety}"
+        f"{aesthetic}. {visual_style}. {character_reference} {continuity} {safety}"
     )
 
 
@@ -412,6 +530,7 @@ def _scene_description_is_specific(text: str) -> bool:
     too_generic = any(
         phrase in lowered
         for phrase in [
+            "opening shot: scene ",
             "wide shot of the night sky",
             "child is looking up",
             "camera moves slightly",
@@ -427,7 +546,7 @@ def _scene_description_is_specific(text: str) -> bool:
     )
     return (
         word_count >= 60
-        and word_count <= 130
+        and word_count <= 170
         and camera_terms <= 5
         and all(term in lowered for term in required_craft)
         and has_action
@@ -445,20 +564,22 @@ def _normalize_scene_description(
     clip_count: int,
     visual_style: str,
     raw_description: str | None,
+    character_bank: list[CharacterProfile] | None = None,
 ) -> str:
-    description = " ".join(str(raw_description or "").split())
+    description = _strip_leading_scene_label(raw_description or "")
     if _scene_description_is_specific(description):
         return description
     if _scene_description_has_concrete_content(description):
         visual_core = _strip_scene_production_notes(description)
         subject = _topic_subject(topic)
+        character_reference = _character_consistency_sentence(character_bank or [], topic, lyric_line)
         return (
             f"Opening shot: {visual_core} {_scene_camera_plan(index)}. "
             f"{_scene_aesthetic_plan(index)}. {visual_style}. "
-            f"Keep {subject} and the rhyme's main setting visually consistent, full-frame, and easy to read. "
+            f"{character_reference} Keep {subject} and the rhyme's main setting visually consistent, full-frame, and easy to read. "
             "Smooth child-safe motion, uncluttered staging, no written words, no inset frame, no scary imagery."
         )
-    return _rich_scene_description(topic, lyric_line, index, clip_count, visual_style)
+    return _rich_scene_description(topic, lyric_line, index, clip_count, visual_style, character_bank)
 
 
 def _scene_description_has_concrete_content(text: str) -> bool:
@@ -492,15 +613,29 @@ def _scene_description_has_concrete_content(text: str) -> bool:
     )
 
 
-def _storyboard_action(topic: str, lyric_line: str, index: int, clip_count: int, visual_style: str) -> tuple[str, str]:
+def _storyboard_action(
+    topic: str,
+    lyric_line: str,
+    index: int,
+    clip_count: int,
+    visual_style: str,
+    character_bank: list[CharacterProfile] | None = None,
+) -> tuple[str, str]:
     return (
-        _rich_scene_description(topic, lyric_line, index, clip_count, visual_style),
+        _rich_scene_description(topic, lyric_line, index, clip_count, visual_style, character_bank),
         _scene_camera_plan(index),
     )
 
 
 def _clean_sentence(text: str) -> str:
     return " ".join(str(text or "").replace("\n", " ").split()).strip(" ,;.")
+
+
+def _strip_leading_scene_label(text: str) -> str:
+    cleaned = " ".join(str(text or "").replace("\n", " ").split()).strip(" ,;")
+    cleaned = re.sub(r"(?i)^opening shot:\s*scene\s+\d+\s*:\s*", "Opening shot: ", cleaned)
+    cleaned = re.sub(r"(?i)^scene\s+\d+\s*:\s*", "", cleaned)
+    return cleaned
 
 
 def _sentence_case(text: str) -> str:
@@ -511,7 +646,7 @@ def _sentence_case(text: str) -> str:
 
 
 def _strip_scene_production_notes(description: str) -> str:
-    scene_text = _clean_sentence(description)
+    scene_text = _strip_leading_scene_label(description)
     if scene_text.startswith("Opening shot:"):
         scene_text = scene_text[len("Opening shot:"):].strip()
     scene_text = scene_text.replace(" Camera ", ". Camera ")
@@ -594,7 +729,7 @@ def build_production_plan(rhyme: NurseryRhymeInput, *, target_fps: int = 24) -> 
     clip_count = min(rhyme.clip_count or len(lines), len(lines))
     target_duration = rhyme.target_duration_seconds or clip_count * STORYMEM_CLIP_SECONDS
     segments = _segment_lines(lines[:clip_count], target_duration, target_fps)
-    bank = _character_bank(rhyme.visual_style, rhyme.character_db_path)
+    bank = _character_bank(rhyme.visual_style, _character_source_path(rhyme))
     no_text_constraint = (
         "Do not show any written lyrics, subtitles, captions, letters, words, signs, labels, title cards, "
         "book pages, handwriting, or readable text inside the image; the lyric is for meaning only."
@@ -602,7 +737,7 @@ def build_production_plan(rhyme: NurseryRhymeInput, *, target_fps: int = 24) -> 
 
     scenes = []
     for index, segment in enumerate(segments, start=1):
-        action, camera = _storyboard_action(rhyme.topic_or_name, segment.text, index, clip_count, rhyme.visual_style)
+        action, camera = _storyboard_action(rhyme.topic_or_name, segment.text, index, clip_count, rhyme.visual_style, bank)
         action = _normalize_scene_description(
             topic=rhyme.topic_or_name,
             lyric_line=segment.text,
@@ -610,6 +745,7 @@ def build_production_plan(rhyme: NurseryRhymeInput, *, target_fps: int = 24) -> 
             clip_count=clip_count,
             visual_style=rhyme.visual_style,
             raw_description=action,
+            character_bank=bank,
         )
         prompt = _storyboard_prompt(
             index=index,
@@ -672,7 +808,10 @@ def _planner_prompt() -> str:
         "roughly one clip per five seconds, capped at 12 clips unless the user explicitly asks for more. "
         "Never output the same stanza more than twice. "
         "Honor optional user overrides exactly when present: target_duration_seconds, clip_count, target_audience, "
-        "visual_style, audio_style, lyrics, and character_db_path. "
+        "visual_style, audio_style, lyrics, character_bank_path, and character_db_path. "
+        "If a character bank is supplied, select relevant entries from that bank and keep their concise visual "
+        "descriptions unchanged across scenes. Only invent a generic missing character when no bank entry matches "
+        "a needed role, and make that character simple, named, and consistent. "
         "StoryMem generates one short video clip per scene prompt; each generated clip is approximately five seconds. "
         "If the user does not explicitly provide target_duration_seconds, set total duration to clip_count * 5 seconds. "
         "If the user explicitly provides target_duration_seconds, choose enough clips to cover that duration at about five seconds per clip. "
@@ -718,30 +857,202 @@ def _list_from_decision(value: Any) -> list[str]:
     return []
 
 
-def _profiles_from_decision(decision: dict[str, Any], visual_style: str, character_db_path: str | None) -> list[CharacterProfile]:
-    if character_db_path:
-        return _character_bank(visual_style, character_db_path)
+def _profiles_from_decision(decision: dict[str, Any], visual_style: str, character_path: str | None) -> list[CharacterProfile]:
+    if character_path:
+        return _character_bank(visual_style, character_path)
     raw_characters = decision.get("characters") or decision.get("character_bank") or []
     profiles: list[CharacterProfile] = []
     if isinstance(raw_characters, list):
         for index, item in enumerate(raw_characters, start=1):
             if not isinstance(item, dict):
                 continue
-            label = item.get("label") or item.get("id") or item.get("name") or f"character_{index}"
-            description = item.get("description") or item.get("visual_description") or ""
-            if not str(description).strip():
-                continue
-            profiles.append(
-                CharacterProfile(
-                    label=str(label),
-                    description=str(description),
-                    continuity_constraints=[str(value) for value in item.get("continuity_constraints", [])],
-                    negative_constraints=[str(value) for value in item.get("negative_constraints", [])],
-                    reference_image_paths=[str(value) for value in item.get("reference_image_paths", [])],
-                    voice_notes=item.get("voice_notes") or item.get("personality_notes"),
-                )
-            )
+            item = {**item, "label": item.get("label") or item.get("id") or item.get("name") or f"character_{index}"}
+            profile = _profile_from_item(item, index)
+            if profile:
+                profiles.append(profile)
     return profiles or _character_bank(visual_style, None)
+
+
+def build_visual_bible(plan: ProductionPlan) -> dict[str, Any]:
+    topic = plan.rhyme.topic_or_name or plan.lyric_segments[0].text
+    family = _setting_family(topic, "\n".join(segment.text for segment in plan.lyric_segments))
+    return {
+        "primary_world": family or "custom_lullaby_world",
+        "visual_style": plan.rhyme.visual_style,
+        "allowed_locations": TOPIC_SETTING_FRAMES.get(family or "", SETTING_FRAMES[:4]),
+        "recurring_characters": [
+            {
+                "label": profile.label,
+                "role": profile.role,
+                "description": profile.description,
+                "visual_anchors": profile.visual_anchors,
+                "negative_constraints": profile.negative_constraints,
+            }
+            for profile in plan.character_bank
+        ],
+        "prohibited_imagery": [
+            "generated text",
+            "readable words",
+            "picture-in-picture",
+            "inset frame",
+            "scary imagery",
+            "unsafe falls or impacts",
+            "dialogue in visual prompt",
+        ],
+    }
+
+
+def _semantic_keywords(text: str) -> set[str]:
+    words = _text_words(text)
+    stopwords = {
+        "a", "an", "and", "are", "as", "be", "come", "do", "for", "go", "had", "has", "how", "i", "in", "is",
+        "it", "its", "like", "little", "now", "of", "on", "so", "the", "this", "to", "up", "was", "what", "with",
+        "you", "your", "away", "come", "again", "another", "day", "want", "sure",
+        "life", "but", "merrily", "merry", "hickory", "dickory", "dock",
+        "line", "one", "two", "three", "four", "five", "six", "seven", "eight",
+    }
+    aliases = {
+        "mary": "child",
+        "twinkle": "star",
+        "sparkle": "star",
+        "shining": "star",
+        "ran": "run",
+        "running": "run",
+        "went": "follow",
+        "go": "follow",
+        "following": "follow",
+        "follows": "follow",
+        "walks": "child",
+        "white": "wool",
+        "fleece": "wool",
+        "snow": "wool",
+        "row": "boat",
+        "rowing": "boat",
+        "stream": "river",
+        "puddles": "puddle",
+        "raindrops": "rain",
+        "children": "child",
+        "play": "toy",
+        "baby": "cradle",
+        "struck": "bell",
+        "down": "ramp",
+        "dream": "sleep",
+    }
+    return {aliases.get(word, word) for word in words if word not in stopwords and len(word) > 2}
+
+
+def _safe_description_for_line(line: str, description: str) -> bool:
+    line_words = _semantic_keywords(line)
+    text = description.lower()
+    fall_safe_negated = any(term in text for term in ["never falling", "no falling", "not falling"])
+    depicts_fall = (
+        not fall_safe_negated
+        and any(term in text for term in [" falls", " fall ", " falling", "falls downward", "fall toward", "downward through"])
+    )
+    risky_baby_descent = "baby" in line.lower() and "down" in line.lower()
+    if "fall" in line_words or "falls" in line.lower() or risky_baby_descent or depicts_fall:
+        return any(term in text for term in ["gently lowers", "caught", "settles safely", "rocking", "no falling", "softly settles"])
+    return True
+
+
+def validate_plan_semantics(plan: ProductionPlan) -> dict[str, Any]:
+    issues: list[dict[str, Any]] = []
+    plan.validate()
+    descriptions = [scene.description for scene in plan.scenes]
+    prompts = [scene.video_prompt for scene in plan.scenes]
+    for scene in plan.scenes:
+        segment = next(segment for segment in plan.lyric_segments if segment.index == scene.lyric_segment_index)
+        lower_description = scene.description.lower()
+        lower_prompt = scene.video_prompt.lower()
+        if not scene.description.startswith("Opening shot:"):
+            issues.append({"code": "scene_format", "scene_num": scene.scene_num, "message": "description must start with Opening shot:"})
+        if len(scene.description.split()) < 45:
+            issues.append({"code": "scene_too_short", "scene_num": scene.scene_num, "message": "description is too short for reliable video planning"})
+        if len(scene.video_prompt) >= 900:
+            issues.append({"code": "prompt_too_long", "scene_num": scene.scene_num, "message": "StoryMem prompt exceeds length budget"})
+        if any(term not in lower_prompt for term in ["no generated text", "no picture-in-picture", "no scary"]):
+            issues.append({"code": "missing_visual_guard", "scene_num": scene.scene_num, "message": "prompt is missing required visual guardrails"})
+        lyric_keywords = _semantic_keywords(segment.text)
+        topic_keywords = _semantic_keywords(plan.rhyme.topic_or_name)
+        scene_keywords = _semantic_keywords(scene.description)
+        matched_lyric_keywords = lyric_keywords & scene_keywords
+        required_matches = min(2, len(lyric_keywords))
+        if lyric_keywords and len(matched_lyric_keywords) < required_matches:
+            issues.append({"code": "lyric_mismatch", "scene_num": scene.scene_num, "message": f"scene does not visibly ground lyric: {segment.text}"})
+        elif not lyric_keywords and topic_keywords and not (topic_keywords & scene_keywords):
+            issues.append({"code": "topic_mismatch", "scene_num": scene.scene_num, "message": "scene does not visibly ground the requested topic"})
+        if not _safe_description_for_line(segment.text, scene.description):
+            issues.append({"code": "unsafe_literal_action", "scene_num": scene.scene_num, "message": "unsafe lyric action needs a child-safe visual adaptation"})
+        if any(phrase in lower_description for phrase in ["inspired by the input prompt", "current lyric meaning", "generic lullaby scene", "clear main subject area"]):
+            issues.append({"code": "generic_scene_text", "scene_num": scene.scene_num, "message": "description contains generic placeholder planning language"})
+        if plan.rhyme.character_bank_path or plan.rhyme.character_db_path:
+            selected_profiles = _select_character_profiles(plan.character_bank, plan.rhyme.topic_or_name, segment.text)
+            for profile in selected_profiles:
+                if profile.description and profile.description.lower() not in lower_description:
+                    issues.append({"code": "character_bank_not_used", "scene_num": scene.scene_num, "message": f"missing selected character description: {profile.label}"})
+    for index in range(len(descriptions) - 1):
+        ratio = difflib.SequenceMatcher(None, descriptions[index], descriptions[index + 1]).ratio()
+        if ratio > 0.82:
+            issues.append({"code": "near_duplicate_scenes", "scene_num": index + 2, "message": f"scene is too similar to previous scene ({ratio:.2f})"})
+    return {
+        "passed": not issues,
+        "issue_count": len(issues),
+        "issues": issues,
+        "visual_bible": build_visual_bible(plan),
+    }
+
+
+def _critic_prompt() -> str:
+    return (
+        "You are PlanCriticAgent for a StoryMem video planner. Review the structured production plan before GPU "
+        "generation. Return strict JSON with passed, issues, optional scores, and revision_notes. Flag lyric-scene "
+        "mismatch, repeated muddy scenes, unsafe literal nursery-rhyme actions, world drift, missing character-bank "
+        "consistency, vague visual descriptions, and prompts that would create text, dialogue, inset frames, or "
+        "background music. Be concrete and reference scene numbers."
+    )
+
+
+class PlanCriticAgent:
+    def __init__(self, backend: AgentBackend | None = None) -> None:
+        self.backend = backend
+        self.last_prompt: str | None = None
+        self.last_schema: dict[str, Any] | None = None
+        self.last_context: dict[str, Any] | None = None
+        self.last_response: dict[str, Any] | None = None
+        self.last_error: str | None = None
+
+    def review(self, plan: ProductionPlan, deterministic_report: dict[str, Any]) -> dict[str, Any]:
+        self.last_error = None
+        self.last_response = None
+        if not self.backend:
+            return {"passed": True, "issues": [], "scores": {}, "revision_notes": []}
+        self.last_prompt = _critic_prompt()
+        self.last_schema = PLAN_CRITIC_SCHEMA
+        self.last_context = {
+            "response_key": "plan_critic",
+            "production_plan": plan.to_dict(),
+            "deterministic_report": deterministic_report,
+        }
+        try:
+            response = self.backend.generate_json(self.last_prompt, self.last_schema, self.last_context)
+        except Exception as exc:
+            self.last_error = str(exc)
+            return {
+                "passed": False,
+                "issues": [{"code": "critic_backend_error", "message": str(exc), "scene_num": None}],
+                "scores": {},
+                "revision_notes": [],
+            }
+        self.last_response = response
+        issues = response.get("issues", [])
+        if not isinstance(issues, list):
+            issues = [{"code": "critic_invalid_issues", "message": "critic issues must be a list", "scene_num": None}]
+        return {
+            "passed": bool(response.get("passed", not issues)),
+            "issues": issues,
+            "scores": response.get("scores", {}) if isinstance(response.get("scores", {}), dict) else {},
+            "revision_notes": response.get("revision_notes", []) if isinstance(response.get("revision_notes", []), list) else [],
+        }
 
 
 def production_plan_from_planner_decision(
@@ -761,7 +1072,7 @@ def production_plan_from_planner_decision(
     else:
         target_duration = clip_count * STORYMEM_CLIP_SECONDS
     segments = _segment_lines(lines[:clip_count], target_duration, target_fps)
-    bank = _profiles_from_decision(decision, rhyme.visual_style, rhyme.character_db_path)
+    bank = _profiles_from_decision(decision, rhyme.visual_style, _character_source_path(rhyme))
     no_text_constraint = (
         "Do not show any written lyrics, subtitles, captions, letters, words, signs, labels, title cards, "
         "book pages, handwriting, or readable text inside the image; the lyric is for meaning only."
@@ -778,6 +1089,7 @@ def production_plan_from_planner_decision(
             clip_count=clip_count,
             visual_style=rhyme.visual_style,
             raw_description=raw_description,
+            character_bank=bank,
         )
         camera = str(raw.get("camera") or raw.get("motion") or _scene_camera_plan(index))
         expected_mood = str(raw.get("expected_mood") or "calm child-safe bedtime wonder")
@@ -833,23 +1145,41 @@ def production_plan_from_planner_decision(
 
 
 class PromptPlannerAgent:
-    def __init__(self, backend: AgentBackend | None = None, *, target_fps: int = 24) -> None:
+    def __init__(
+        self,
+        backend: AgentBackend | None = None,
+        *,
+        target_fps: int = 24,
+        critic: PlanCriticAgent | None = None,
+        max_plan_revisions: int = 2,
+    ) -> None:
         self.backend = backend
         self.target_fps = target_fps
+        self.critic = critic or PlanCriticAgent(None)
+        self.max_plan_revisions = max(0, int(max_plan_revisions))
         self.last_prompt: str | None = None
         self.last_schema: dict[str, Any] | None = None
         self.last_context: dict[str, Any] | None = None
         self.last_response: dict[str, Any] | None = None
         self.last_error: str | None = None
         self.used_fallback: bool = False
+        self.plan_attempts: list[dict[str, Any]] = []
+        self.last_validation_report: dict[str, Any] | None = None
+        self.last_critic_report: dict[str, Any] | None = None
 
     def plan(self, rhyme: NurseryRhymeInput) -> ProductionPlan:
         self.last_error = None
         self.last_response = None
         self.used_fallback = False
+        self.plan_attempts = []
+        self.last_validation_report = None
+        self.last_critic_report = None
         if not self.backend:
             self.used_fallback = True
-            return build_production_plan(rhyme, target_fps=self.target_fps)
+            plan = build_production_plan(rhyme, target_fps=self.target_fps)
+            self.last_validation_report = validate_plan_semantics(plan)
+            self.last_critic_report = self.critic.review(plan, self.last_validation_report)
+            return plan
         self.last_prompt = _planner_prompt()
         self.last_schema = PLANNER_DECISION_SCHEMA
         self.last_context = {"response_key": "planner", "input": rhyme.to_dict()}
@@ -862,14 +1192,63 @@ class PromptPlannerAgent:
         except Exception as exc:
             self.last_error = str(exc)
             self.used_fallback = True
-            return build_production_plan(rhyme, target_fps=self.target_fps)
+            plan = build_production_plan(rhyme, target_fps=self.target_fps)
+            self.last_validation_report = validate_plan_semantics(plan)
+            self.last_critic_report = self.critic.review(plan, self.last_validation_report)
+            return plan
         self.last_response = response
         candidate = response.get("planner_decision", response.get("production_plan", response))
-        try:
-            if "lyric_segments" in candidate and "rhyme" in candidate:
-                return ProductionPlan.from_dict(candidate)
-            return production_plan_from_planner_decision(rhyme, candidate, target_fps=self.target_fps)
-        except Exception as exc:
-            self.last_error = str(exc)
-            self.used_fallback = True
-            return build_production_plan(rhyme, target_fps=self.target_fps)
+        last_plan: ProductionPlan | None = None
+        for attempt in range(0, self.max_plan_revisions + 1):
+            try:
+                if "lyric_segments" in candidate and "rhyme" in candidate:
+                    plan = ProductionPlan.from_dict(candidate)
+                else:
+                    plan = production_plan_from_planner_decision(rhyme, candidate, target_fps=self.target_fps)
+            except Exception as exc:
+                self.last_error = str(exc)
+                self.plan_attempts.append({"attempt": attempt + 1, "status": "conversion_failed", "error": str(exc), "candidate": candidate})
+                break
+            last_plan = plan
+            deterministic_report = validate_plan_semantics(plan)
+            critic_report = self.critic.review(plan, deterministic_report)
+            merged_issues = [*deterministic_report.get("issues", []), *critic_report.get("issues", [])]
+            self.last_validation_report = {**deterministic_report, "critic_passed": critic_report.get("passed"), "critic_issue_count": len(critic_report.get("issues", []))}
+            self.last_critic_report = critic_report
+            self.plan_attempts.append(
+                {
+                    "attempt": attempt + 1,
+                    "status": "passed" if not merged_issues else "needs_revision",
+                    "deterministic_report": deterministic_report,
+                    "critic_report": critic_report,
+                    "candidate": candidate,
+                }
+            )
+            if not merged_issues:
+                return plan
+            if attempt >= self.max_plan_revisions:
+                return plan
+            revision_context = {
+                "response_key": f"planner_revision_{attempt + 1}",
+                "input": rhyme.to_dict(),
+                "previous_decision": candidate,
+                "production_plan": plan.to_dict(),
+                "validation_issues": merged_issues,
+                "instruction": (
+                    "Return a complete replacement planner decision JSON. Preserve supplied lyrics exactly. "
+                    "Edit structured scene descriptions/camera fields to fix only the listed issues before prompt compilation."
+                ),
+            }
+            try:
+                response = self.backend.generate_json(self.last_prompt, self.last_schema, revision_context)
+            except Exception as exc:
+                self.last_error = str(exc)
+                break
+            candidate = response.get("planner_decision", response.get("production_plan", response))
+        if last_plan is not None:
+            return last_plan
+        self.used_fallback = True
+        fallback = build_production_plan(rhyme, target_fps=self.target_fps)
+        self.last_validation_report = validate_plan_semantics(fallback)
+        self.last_critic_report = self.critic.review(fallback, self.last_validation_report)
+        return fallback

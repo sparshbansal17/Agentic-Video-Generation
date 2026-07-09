@@ -15,7 +15,7 @@ from .backends import write_backend_manifest
 from .feedback import apply_revision_plan, build_revision_plan
 from .media_evaluator import evaluate_iteration
 from .mixer import build_mix_manifest, write_mix_manifest
-from .planner import PromptPlannerAgent
+from .planner import PlanCriticAgent, PromptPlannerAgent, build_visual_bible, validate_plan_semantics
 from .runner import run_audio_postprocess
 from .schemas import EvaluationReport, NurseryRhymeInput, ProductionPlan, RevisionPlan, SceneHint
 from .story_writer import rhyme_text_from_plan, story_from_plan, storymem_script_from_plan
@@ -64,6 +64,7 @@ def load_rhyme_input(
     seed: int = 0,
     clip_count: int | None = None,
     character_db_path: str | Path | None = None,
+    character_bank_path: str | Path | None = None,
 ) -> NurseryRhymeInput:
     rhyme_text = Path(rhyme_file).read_text(encoding="utf-8") if rhyme_file else ""
     supplied_lyrics = Path(lyrics_file).read_text(encoding="utf-8") if lyrics_file else lyrics
@@ -81,6 +82,7 @@ def load_rhyme_input(
         output_root=str(output_root),
         clip_count=clip_count,
         character_db_path=str(character_db_path) if character_db_path else None,
+        character_bank_path=str(character_bank_path) if character_bank_path else None,
     )
     input_data.validate()
     return input_data
@@ -502,8 +504,12 @@ def run_workflow(
     storymem_keyframe_mode: str = "hps",
     execute_video: bool = False,
     character_db_path: str | Path | None = None,
+    character_bank_path: str | Path | None = None,
     planner_backend: str = "mock",
     planner_command: str | None = None,
+    plan_critic_command: str | None = None,
+    max_plan_revisions: int = 2,
+    plan_validation_policy: str = "block",
     review_backend: str = "mock",
     vlm_command: str | None = None,
     whisperx_command: str | None = None,
@@ -543,17 +549,56 @@ def run_workflow(
         seed=seed,
         clip_count=clip_count,
         character_db_path=character_db_path,
+        character_bank_path=character_bank_path,
     )
+    critic_backend = CommandAgentBackend(plan_critic_command) if plan_critic_command else None
     planner = PromptPlannerAgent(
-        CommandAgentBackend(planner_command) if planner_backend == "command" and planner_command else None
+        CommandAgentBackend(planner_command) if planner_backend == "command" and planner_command else None,
+        critic=PlanCriticAgent(critic_backend),
+        max_plan_revisions=max_plan_revisions,
     )
     plan = planner.plan(nursery_input)
     write_json(root / "nursery_rhyme_input.json", nursery_input.to_dict())
+    validation_report = planner.last_validation_report or validate_plan_semantics(plan)
+    critic_report = planner.last_critic_report or {"passed": True, "issues": [], "scores": {}, "revision_notes": []}
+    visual_bible = validation_report.get("visual_bible") or build_visual_bible(plan)
+    write_json(root / "lyrics_resolution.json", {"source": "supplied" if nursery_input.source_lyrics else "planner_or_fallback", "lines": [segment.text for segment in plan.lyric_segments]})
+    write_json(
+        root / "character_bank_resolution.json",
+        {
+            "source_path": nursery_input.character_bank_path or nursery_input.character_db_path,
+            "characters": [
+                {
+                    "label": profile.label,
+                    "role": profile.role,
+                    "description": profile.description,
+                    "visual_anchors": profile.visual_anchors,
+                    "allowed_variants": profile.allowed_variants,
+                    "continuity_constraints": profile.continuity_constraints,
+                    "negative_constraints": profile.negative_constraints,
+                    "reference_image_paths": profile.reference_image_paths,
+                }
+                for profile in plan.character_bank
+            ],
+        },
+    )
+    write_json(root / "visual_bible.json", visual_bible)
+    write_json(root / "plan_validation_report.json", validation_report)
+    write_json(root / "plan_critic_report.json", critic_report)
+    for index, attempt in enumerate(planner.plan_attempts, start=1):
+        write_json(root / f"planner_attempt_{index:02d}.json", attempt)
     planner_output = {
         "backend": planner_backend,
         "command": planner_command,
+        "plan_critic_command": plan_critic_command,
+        "max_plan_revisions": max_plan_revisions,
+        "plan_validation_policy": plan_validation_policy,
         "used_fallback": planner.used_fallback,
         "error": planner.last_error,
+        "validation_passed": bool(validation_report.get("passed")),
+        "validation_issue_count": int(validation_report.get("issue_count", 0)),
+        "critic_passed": bool(critic_report.get("passed", True)),
+        "critic_issue_count": len(critic_report.get("issues", [])),
         "fallback_policy": (
             "continued_with_deterministic_local_plan"
             if planner_backend == "command" and planner.used_fallback
@@ -563,11 +608,17 @@ def run_workflow(
         "schema": planner.last_schema,
         "context": planner.last_context,
         "response": planner.last_response,
+        "attempt_count": len(planner.plan_attempts),
     }
     write_json(
         root / "planner_agent_output.json",
         planner_output,
     )
+    validation_failed = not bool(validation_report.get("passed")) or not bool(critic_report.get("passed", True))
+    if validation_failed and plan_validation_policy == "block" and mode in {"generate", "iterate"}:
+        raise ValueError(
+            "planner validation failed before GPU generation; see plan_validation_report.json and plan_critic_report.json"
+        )
 
     iteration_count = 1 if mode in {"dry_run", "generate"} else max_iterations
     latest_report: EvaluationReport | None = None

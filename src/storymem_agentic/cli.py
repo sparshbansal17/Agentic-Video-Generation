@@ -105,8 +105,12 @@ def workflow(args: argparse.Namespace) -> int:
         storymem_keyframe_mode=args.storymem_keyframe_mode,
         execute_video=args.execute_video,
         character_db_path=args.character_db,
+        character_bank_path=args.character_bank,
         planner_backend=args.planner_backend,
         planner_command=args.planner_command,
+        plan_critic_command=args.plan_critic_command,
+        max_plan_revisions=args.max_plan_revisions,
+        plan_validation_policy=args.plan_validation_policy,
         review_backend=args.review_backend,
         vlm_command=args.vlm_command,
         whisperx_command=args.whisperx_command,
@@ -198,8 +202,12 @@ def build_parser() -> argparse.ArgumentParser:
         command.add_argument("--max-iterations", type=int, default=1)
         command.add_argument("--seed", type=int, default=0)
         command.add_argument("--character-db")
+        command.add_argument("--character-bank")
         command.add_argument("--planner-backend", choices=["mock", "command"], default="mock")
         command.add_argument("--planner-command")
+        command.add_argument("--plan-critic-command")
+        command.add_argument("--max-plan-revisions", type=int, default=2)
+        command.add_argument("--plan-validation-policy", choices=["block", "warn"], default="block")
         command.add_argument("--review-backend", choices=["mock", "command"], default="mock")
         command.add_argument("--allow-mock-review", action="store_true")
         command.add_argument("--vlm-command")

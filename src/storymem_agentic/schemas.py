@@ -28,6 +28,7 @@ class NurseryRhymeInput:
     output_root: str = "results/agentic_run"
     clip_count: int | None = None
     character_db_path: str | None = None
+    character_bank_path: str | None = None
 
     def validate(self) -> None:
         if not (self.rhyme_text.strip() or (self.lyrics or "").strip() or self.topic_or_name.strip()):
@@ -55,6 +56,9 @@ LullabyPromptInput = NurseryRhymeInput
 class CharacterProfile:
     label: str
     description: str
+    role: str | None = None
+    visual_anchors: list[str] = field(default_factory=list)
+    allowed_variants: list[str] = field(default_factory=list)
     continuity_constraints: list[str] = field(default_factory=list)
     negative_constraints: list[str] = field(default_factory=list)
     reference_image_paths: list[str] = field(default_factory=list)

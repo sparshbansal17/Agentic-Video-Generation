@@ -27,19 +27,33 @@ def extract_json(text: str) -> dict[str, Any]:
 def build_user_prompt(payload: dict[str, Any]) -> str:
     prompt = str(payload.get("prompt", ""))
     context = payload.get("context", {})
+    validation_issues = context.get("validation_issues") or []
+    previous_decision = context.get("previous_decision")
+    revision_block = ""
+    if validation_issues:
+        revision_block = (
+            "\nThis is a revision request. Fix every validation issue below by returning a complete replacement "
+            "planner decision JSON. Preserve supplied lyrics exactly and edit the structured scene descriptions, "
+            "camera fields, characters, and continuity fields before prompt compilation.\n"
+            f"Validation issues JSON:\n{json.dumps(validation_issues, indent=2)}\n"
+        )
+        if previous_decision:
+            revision_block += f"Previous planner decision JSON:\n{json.dumps(previous_decision, indent=2)}\n"
     return (
         "Create the lullaby production-planning JSON now.\n\n"
         "Planning directions:\n"
         f"{prompt}\n\n"
         "User input JSON. Treat null values as not supplied by the user:\n"
         f"{json.dumps(context.get('input', {}), indent=2)}\n\n"
+        f"{revision_block}"
         "Return exactly one JSON object with this shape and concrete values, not a schema:\n"
         "{\n"
         '  "lyrics": ["line 1", "line 2"],\n'
         '  "clip_count": 2,\n'
         '  "target_duration_seconds": 10,\n'
         '  "characters": [\n'
-        '    {"label": "character_id", "description": "visual description", '
+        '    {"label": "character_id", "role": "role", "description": "concise consistent visual description", '
+        '"visual_anchors": ["anchor"], "allowed_variants": ["variant"], '
         '"continuity_constraints": ["constraint"], "negative_constraints": ["avoidance"]}\n'
         "  ],\n"
         '  "scenes": [\n'
@@ -59,6 +73,10 @@ def build_user_prompt(payload: dict[str, Any]) -> str:
         "5 seconds per clip, capped at 12 clips unless the user explicitly requests more. "
         "Each lyric line must be unique unless repetition is essential to the known lullaby ending; never output "
         "the same stanza more than twice. "
+        "If the user input includes character_bank_path or character_db_path, treat the provided bank as selectable "
+        "constraints: choose relevant entries from that bank, keep their concise visual descriptions unchanged in "
+        "every scene where they appear, and only create a missing generic character when no bank entry fits a needed "
+        "role. "
         "Follow the Wan prompt recipe for scene planning. Each clip must support the Advanced Formula: subject plus "
         "subject description, scene plus foreground/background description, motion plus motion description, aesthetic "
         "control, and stylization. Plan this like a normal edited video storyboard, not one continuous shot. Make every "
@@ -73,6 +91,8 @@ def build_user_prompt(payload: dict[str, Any]) -> str:
         "describe the visual meaning instead. Put any needed character or setting continuity details directly in the "
         "scene description; do not assume a repeated character-bank prefix will be added later. "
         "Never describe a small framed box, inset image, picture-in-picture, poster, border, title card, or screen-within-screen. "
+        "Adapt unsafe literal rhyme events into calm child-safe visuals; for example, never show babies, children, "
+        "cradles, or characters falling or striking the ground. "
         "Do not include dialogue or background music in visual scenes; audio is generated separately. "
         "Return only valid JSON. Do not return a JSON schema. Do not wrap it in markdown."
     )
