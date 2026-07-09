@@ -269,6 +269,42 @@ class AgenticArchitectureTests(unittest.TestCase):
         self.assertIn("sleepy cloud child", plan.scenes[0].video_prompt)
         self.assertLess(len(plan.scenes[0].video_prompt), 900)
 
+    def test_planner_enriches_concise_concrete_scenes_without_replacing_their_world(self):
+        backend = MockAgentBackend(
+            responses={
+                "planner": {
+                    "lyrics": ["The mouse ran up the clock", "The clock struck one"],
+                    "clip_count": 2,
+                    "target_duration_seconds": 10,
+                    "characters": [{"label": "mouse", "description": "same small brown mouse"}],
+                    "scenes": [
+                        {
+                            "description": (
+                                "Opening shot: close-up of a wooden clock while a small brown mouse runs "
+                                "up its curved side. Camera follows the mouse."
+                            ),
+                            "camera": "slow upward tracking move",
+                        },
+                        {
+                            "description": (
+                                "The mouse pauses beside the clock face as the brass bell rocks once, "
+                                "then runs down toward a cushion."
+                            ),
+                            "camera": "gentle downward tilt",
+                        },
+                    ],
+                    "music_prompt": "soft clockwork lullaby",
+                }
+            }
+        )
+
+        plan = PromptPlannerAgent(backend).plan(NurseryRhymeInput(topic_or_name="Hickory Dickory Dock"))
+
+        self.assertTrue(all("wooden clock" in scene.description or "clock face" in scene.description for scene in plan.scenes))
+        self.assertTrue(all("Opening shot:" in scene.description for scene in plan.scenes))
+        self.assertNotIn("floating plush-cloud sky", "\n".join(scene.description for scene in plan.scenes))
+        self.assertNotIn("magical miniature world", "\n".join(scene.description for scene in plan.scenes))
+
     def test_planner_normalizes_scenes_as_distinct_storyboard_cuts(self):
         backend = MockAgentBackend(
             responses={

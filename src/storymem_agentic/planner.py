@@ -449,7 +449,47 @@ def _normalize_scene_description(
     description = " ".join(str(raw_description or "").split())
     if _scene_description_is_specific(description):
         return description
+    if _scene_description_has_concrete_content(description):
+        visual_core = _strip_scene_production_notes(description)
+        subject = _topic_subject(topic)
+        return (
+            f"Opening shot: {visual_core} {_scene_camera_plan(index)}. "
+            f"{_scene_aesthetic_plan(index)}. {visual_style}. "
+            f"Keep {subject} and the rhyme's main setting visually consistent, full-frame, and easy to read. "
+            "Smooth child-safe motion, uncluttered staging, no written words, no inset frame, no scary imagery."
+        )
     return _rich_scene_description(topic, lyric_line, index, clip_count, visual_style)
+
+
+def _scene_description_has_concrete_content(text: str) -> bool:
+    lowered = text.lower()
+    words = _text_words(text)
+    generic_phrases = [
+        "visualizes the lyric",
+        "lyric meaning",
+        "inspired by the topic",
+        "main subject",
+        "generic lullaby",
+    ]
+    production_words = {
+        "camera", "shot", "scene", "visual", "style", "lighting", "color", "palette",
+        "mood", "continuity", "text", "soft", "warm", "bright", "calm",
+    }
+    content_words = words - production_words
+    has_action = bool(
+        {
+            "runs", "run", "rows", "row", "rocks", "rocking", "sleeps", "sleeping",
+            "looks", "sits", "stands", "walks", "floats", "glides", "falls", "rises",
+            "climbs", "plays", "drifts", "holds", "opens", "closes", "shines",
+        }
+        & words
+    )
+    return (
+        len(text.split()) >= 12
+        and len(content_words) >= 8
+        and has_action
+        and not any(phrase in lowered for phrase in generic_phrases)
+    )
 
 
 def _storyboard_action(topic: str, lyric_line: str, index: int, clip_count: int, visual_style: str) -> tuple[str, str]:
