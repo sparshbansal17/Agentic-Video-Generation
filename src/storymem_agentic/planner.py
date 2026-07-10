@@ -726,7 +726,19 @@ def _raw_scene_field(raw: dict[str, Any], *names: str) -> str:
     return ""
 
 
-def _selected_character_metadata(raw: dict[str, Any], decision: dict[str, Any]) -> list[dict[str, Any]]:
+def _character_lookup_key(label: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "_", str(label).lower()).strip("_")
+
+
+def _selected_character_metadata(
+    raw: dict[str, Any],
+    decision: dict[str, Any],
+    character_bank: list[CharacterProfile],
+) -> list[dict[str, Any]]:
+    bank_by_label = {
+        _character_lookup_key(profile.label): profile
+        for profile in character_bank
+    }
     raw_selection = raw.get("selected_characters")
     if raw_selection is None:
         raw_selection = raw.get("characters")
@@ -742,17 +754,23 @@ def _selected_character_metadata(raw: dict[str, Any], decision: dict[str, Any]) 
             label = item.get("label") or item.get("id") or item.get("name")
             rationale = item.get("selection_rationale") or item.get("rationale") or item.get("reason")
             if label:
+                bank_profile = bank_by_label.get(_character_lookup_key(str(label)))
+                description = item.get("description") or (bank_profile.description if bank_profile else None)
                 selected.append(
                     {
                         "label": str(label),
                         "selection_rationale": str(rationale or "selected by planner"),
-                        **({"description": str(item["description"])} if item.get("description") else {}),
+                        **({"description": str(description)} if description else {}),
                     }
                 )
     return selected
 
 
-def _compile_scene_description(raw: dict[str, Any], visual_style: str) -> tuple[str, dict[str, str]]:
+def _compile_scene_description(
+    raw: dict[str, Any],
+    visual_style: str,
+    selected_characters: list[dict[str, Any]],
+) -> tuple[str, dict[str, str]]:
     fields = {
         "scene_goal": _raw_scene_field(raw, "scene_goal", "goal"),
         "lyric_interpretation": _raw_scene_field(raw, "lyric_interpretation", "interpretation"),
@@ -763,6 +781,18 @@ def _compile_scene_description(raw: dict[str, Any], visual_style: str) -> tuple[
         "style": _raw_scene_field(raw, "style", "visual_style") or visual_style,
         "safety_adaptation": _raw_scene_field(raw, "safety_adaptation", "safety"),
     }
+    character_descriptions = [
+        str(item.get("description", "")).strip()
+        for item in selected_characters
+        if isinstance(item, dict) and str(item.get("description", "")).strip()
+    ]
+    for description in character_descriptions:
+        if description.lower() not in fields["subjects"].lower():
+            fields["subjects"] = (
+                f"{fields['subjects']}; selected character reference: {description}"
+                if fields["subjects"]
+                else description
+            )
     description = _strip_leading_scene_label(str(raw.get("description") or ""))
     if all(fields[name] for name in ["setting", "subjects", "action", "camera", "style", "safety_adaptation"]):
         description = (
@@ -843,7 +873,8 @@ def production_plan_from_planner_decision(
     scenes = []
     for index, segment in enumerate(segments, start=1):
         raw = raw_scenes[index - 1] if index - 1 < len(raw_scenes) and isinstance(raw_scenes[index - 1], dict) else {}
-        description, structured = _compile_scene_description(raw, rhyme.visual_style)
+        selected_characters = _selected_character_metadata(raw, decision, bank)
+        description, structured = _compile_scene_description(raw, rhyme.visual_style, selected_characters)
         camera = structured["camera"]
         expected_mood = str(raw.get("expected_mood") or "calm child-safe bedtime wonder")
         boundary_behavior = str(raw.get("boundary_behavior") or ("fade" if index == clip_count else "hold"))
@@ -860,7 +891,6 @@ def production_plan_from_planner_decision(
             "clean first frame, no written words, no letters, no captions, no inset frame, rounded bedtime storybook style."
         )
         cut = bool(raw.get("cut", True))
-        selected_characters = _selected_character_metadata(raw, decision)
         scenes.append(
             SceneBeat(
                 scene_num=index,
