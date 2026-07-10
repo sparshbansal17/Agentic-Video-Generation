@@ -587,6 +587,13 @@ def run_workflow(
     write_json(root / "plan_critic_report.json", critic_report)
     for index, attempt in enumerate(planner.plan_attempts, start=1):
         write_json(root / f"planner_attempt_{index:02d}.json", attempt)
+    step_counters: dict[str, int] = {}
+    for step in getattr(planner, "agent_steps", []):
+        kind = str(step.get("kind", "planner_step"))
+        if kind not in {"planner_draft", "plan_review", "planner_revision"}:
+            kind = "planner_step"
+        step_counters[kind] = step_counters.get(kind, 0) + 1
+        write_json(root / f"{kind}_{step_counters[kind]:02d}.json", step)
     planner_output = {
         "backend": planner_backend,
         "command": planner_command,
@@ -600,8 +607,8 @@ def run_workflow(
         "critic_passed": bool(critic_report.get("passed", True)),
         "critic_issue_count": len(critic_report.get("issues", [])),
         "fallback_policy": (
-            "continued_with_deterministic_local_plan"
-            if planner_backend == "command" and planner.used_fallback
+            "non_agentic_local_dry_run_only"
+            if planner_backend != "command" and planner.used_fallback
             else None
         ),
         "prompt": planner.last_prompt,
@@ -615,6 +622,25 @@ def run_workflow(
         planner_output,
     )
     validation_failed = not bool(validation_report.get("passed")) or not bool(critic_report.get("passed", True))
+    if planner.used_fallback and mode in {"generate", "iterate"} and execute_video:
+        validation_failed = True
+        validation_report = {
+            **validation_report,
+            "passed": False,
+            "issues": [
+                *validation_report.get("issues", []),
+                {
+                    "code": "non_agentic_plan_cannot_launch_gpu_generation",
+                    "scene_num": None,
+                    "message": "local non-agentic planner scaffold is allowed only for dry-run/offline artifacts",
+                },
+            ],
+            "issue_count": int(validation_report.get("issue_count", 0)) + 1,
+        }
+        write_json(root / "plan_validation_report.json", validation_report)
+        planner_output["validation_passed"] = False
+        planner_output["validation_issue_count"] = int(validation_report.get("issue_count", 0))
+        write_json(root / "planner_agent_output.json", planner_output)
     if validation_failed and plan_validation_policy == "block" and mode in {"generate", "iterate"}:
         raise ValueError(
             "planner validation failed before GPU generation; see plan_validation_report.json and plan_critic_report.json"

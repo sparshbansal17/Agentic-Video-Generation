@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import re
-import difflib
 from pathlib import Path
 from typing import Any
 
@@ -95,59 +94,24 @@ SETTING_FRAMES = [
     "a cozy interior nook built around the rhyme's main object, with plush textures, soft curtains, and a readable foreground-to-background path",
     "a slow-moving dream corridor of soft shapes from the lyric, arranged for a clear edited video shot rather than a one-shot scene",
 ]
-TOPIC_SETTING_FRAMES = {
-    "star": [
-        "a cozy rounded bedroom playroom at night, with a warm nightlight, round window, and soft toys",
-        "a small handmade storybook landscape, with rounded paths, toy-like props, and warm distant lights",
-        "a floating plush-cloud sky above a tiny toy town, with foreground clouds and open blue space",
-        "a wide magical miniature world, with tiny safe details glowing below the characters",
-        "a quiet closing sky above the bedroom window, with the final star clearly visible and the background simplified",
-    ],
-    "moon": [
-        "a moonlit nursery nook, with layered curtains in the foreground and a round window in the background",
-        "a quiet toy-rooftop village under a pearl moon, with soft chimneys and warm window lights",
-        "a plush cloud balcony in the night sky, with crescent shapes and open blue space",
-        "a sleepy bedside scene washed in moonlight, with blankets and soft toys arranged in clear layers",
-        "a calm closing window view, with the moon large and gentle above a simplified bedtime room",
-    ],
-    "lamb": [
-        "a sunny rounded meadow beside a low wooden fence, with a small red schoolhouse roof in the background",
-        "a close meadow patch with daisies, soft grass, and a rounded fence line behind the characters",
-        "a curved storybook path leading toward a little red schoolhouse, with trees and flowers framing the route",
-        "a friendly schoolhouse gate with meadow flowers in the foreground and the path continuing behind",
-        "a peaceful schoolyard edge with the lamb and child clearly visible against a simple meadow background",
-    ],
-    "rain": [
-        "a warm window nook during gentle rain, with rounded raindrops on glass and cozy toys in the foreground",
-        "a covered garden path with soft puddle reflections and umbrella-like leaves",
-        "a small toy bridge over satin puddles, with warm house lights glowing in the background",
-        "a sleepy bedroom corner where rain patterns shimmer softly across blankets",
-        "a calm closing window scene with the rain slowing and the room warm and uncluttered",
-    ],
-    "boat": [
-        "a moonlit paper-boat stream, with satin ripples in the foreground and rounded banks behind",
-        "a toy river bend with soft reeds, tiny lantern reflections, and open water ahead",
-        "a gentle cloud-reflection cove, with the boat centered and shore shapes layered behind",
-        "a quiet bedtime harbor made of plush shapes, with warm lights and smooth water",
-        "a calm closing shore where the small boat rests safely under soft moonlight",
-    ],
-    "clock": [
-        "a cozy oversized wooden clock nook, with brass clock hands in the foreground and soft cushions below",
-        "a rounded nursery mantel clock, with carved numbers blurred into shapes and warm lamplight behind",
-        "a close clock-face platform, with the tiny bell above and plush moonlit curtains in the background",
-        "a safe padded clock base, with a curved wooden ramp and soft blankets waiting below",
-        "a calm closing clock corner, with the mouse resting beside the clock under warm bedtime light",
-    ],
-}
-
 PLANNER_DECISION_SCHEMA: dict[str, Any] = {
-    "name": "lullaby_planner_decision",
+    "name": "scene_planner_decision",
     "type": "object",
-    "required": ["lyrics", "clip_count", "target_duration_seconds", "characters", "scenes", "music_prompt"],
+    "required": [
+        "lyrics",
+        "clip_count",
+        "target_duration_seconds",
+        "visual_bible",
+        "selected_characters",
+        "scenes",
+        "music_prompt",
+    ],
     "properties": {
         "lyrics": {"type": "array", "items": {"type": "string"}},
         "clip_count": {"type": "integer"},
         "target_duration_seconds": {"type": "number"},
+        "visual_bible": {"type": "object"},
+        "selected_characters": {"type": "array", "items": {"type": "object"}},
         "characters": {"type": "array", "items": {"type": "object"}},
         "scenes": {"type": "array", "items": {"type": "object"}},
         "music_prompt": {"type": "string"},
@@ -155,7 +119,7 @@ PLANNER_DECISION_SCHEMA: dict[str, Any] = {
 }
 
 PLAN_CRITIC_SCHEMA: dict[str, Any] = {
-    "name": "lullaby_plan_critic_report",
+    "name": "scene_plan_review_report",
     "type": "object",
     "required": ["passed", "issues"],
     "properties": {
@@ -212,22 +176,22 @@ def _character_bank(visual_style: str, character_db_path: str | None = None) -> 
 
     return [
         CharacterProfile(
-            label="pajama_child",
+            label="bedtime_child",
             description=(
                 "same toddler-safe pajama child in every scene: round friendly face, sleepy happy eyes, "
-                "soft blue pajamas with tiny star pattern, warm expression, simple rounded storybook design"
+                "soft blue pajamas with tiny dot pattern, warm expression, simple rounded storybook design"
             ),
             continuity_constraints=["same pajamas", "same round friendly face", "calm bedtime expression"],
             negative_constraints=["no scary expression", "no sharp features"],
         ),
         CharacterProfile(
-            label="smiling_star",
+            label="soft_glow_companion",
             description=(
-                "same small rounded golden star in every scene: friendly smiling face, soft glow, "
-                "gentle twinkle, no sharp edges, bedtime-safe toy-like appearance"
+                "same small rounded glowing companion in every scene: friendly smiling face, soft glow, "
+                "no sharp edges, bedtime-safe toy-like appearance"
             ),
-            continuity_constraints=["same small rounded golden star", "same soft glow"],
-            negative_constraints=["no sharp points", "no harsh flare"],
+            continuity_constraints=["same small rounded glowing companion", "same soft glow"],
+            negative_constraints=["no harsh flare", "no sharp features"],
         ),
         CharacterProfile(
             label="playroom_setting",
@@ -242,13 +206,13 @@ def _character_bank(visual_style: str, character_db_path: str | None = None) -> 
 
 
 def _fallback_topic_lyrics(topic_or_name: str) -> str:
-    topic = " ".join(topic_or_name.split()) or "sleepy stars"
+    topic = " ".join(topic_or_name.split()) or "sleepy dreams"
     return "\n".join(
         [
             f"Sleep softly now, {topic},",
-            "Moonlight hums a gentle tune,",
-            "Stars are rocking clouds to sleep,",
-            "Dreams will glow until the moon.",
+            "Soft light hums a gentle tune,",
+            "Dreams are rocking clouds to sleep,",
+            "Gentle light will carry you.",
         ]
     )
 
@@ -290,227 +254,34 @@ def _scene_aesthetic_plan(index: int) -> str:
     return SCENE_AESTHETIC_PLANS[(index - 1) % len(SCENE_AESTHETIC_PLANS)]
 
 
-def _setting_family(topic: str, lyric_line: str) -> str | None:
-    topic_set = set(_topic_words(topic))
-    line_set = _text_words(lyric_line)
-    topic_family_terms = [
-        ("lamb", {"mary", "lamb", "lambs", "sheep", "fleece"}),
-        ("rain", {"rain", "rainy", "raindrop", "raindrops", "puddle", "puddles"}),
-        ("boat", {"boat", "boats", "row", "stream", "river"}),
-        ("clock", {"hickory", "dickory", "dock", "clock", "mouse"}),
-        ("moon", {"moon", "moons", "crescent", "moonlight"}),
-        ("star", {"star", "stars", "twinkle", "sparkle", "sparkles", "sparkling"}),
-    ]
-    for family, terms in topic_family_terms:
-        if terms & topic_set:
-            return family
-    combined = topic_set | line_set
-    if {"mary", "lamb", "lambs", "sheep", "fleece"} & combined:
-        return "lamb"
-    if {"rain", "rainy", "raindrop", "raindrops", "puddle", "puddles"} & combined:
-        return "rain"
-    if {"boat", "boats", "row", "stream", "river"} & combined:
-        return "boat"
-    if {"hickory", "dickory", "dock", "clock", "mouse", "mice"} & combined:
-        return "clock"
-    if {"moon", "moons", "crescent", "moonlight"} & combined:
-        return "moon"
-    if {"star", "stars", "twinkle", "sparkle", "sparkles", "sparkling", "shine", "shines"} & combined:
-        return "star"
-    return None
-
-
-def _setting_frame(topic: str, lyric_line: str, index: int) -> str:
-    family = _setting_family(topic, lyric_line)
-    frames = TOPIC_SETTING_FRAMES.get(family or "")
-    if frames:
-        return frames[(index - 1) % len(frames)]
-    return SETTING_FRAMES[(index - 1) % len(SETTING_FRAMES)]
-
-
-def _topic_words(topic: str) -> list[str]:
-    stopwords = {"the", "a", "an", "any", "lullaby", "nursery", "rhyme", "song", "prompt", "and", "of", "for", "to"}
-    words = [word.strip(" ,.!?;:\"'()[]{}").lower() for word in topic.split()]
-    return [word for word in words if word and word not in stopwords]
-
-
 def _text_words(text: str) -> set[str]:
     return set(re.findall(r"[a-z0-9']+", text.lower()))
-
-
-def _topic_subject(topic: str) -> str:
-    meaningful = _topic_words(topic)
-    if not meaningful:
-        return "a friendly glowing bedtime guide"
-    if "star" in meaningful or "twinkle" in meaningful:
-        return "the same tiny rounded golden star with a friendly face"
-    if "moon" in meaningful:
-        return "the same smiling crescent moon with a warm pearl glow"
-    if "lamb" in meaningful:
-        return "the same small fluffy lamb with a ribbon-soft collar"
-    if "mary" in meaningful:
-        return "the same small fluffy lamb with a ribbon-soft collar beside Mary"
-    if "sheep" in meaningful:
-        return "the same sleepy woolly sheep with rounded toy-like features"
-    if "hickory" in meaningful or "clock" in meaningful or "mouse" in meaningful:
-        return "the same tiny rounded clock mouse beside a cozy wooden clock"
-    if "boat" in meaningful or "row" in meaningful:
-        return "the same tiny boat and friendly plush river companion"
-    if "rain" in meaningful:
-        return "the same raincoat child waiting for the gentle rain to clear"
-    if "baby" in meaningful or "hush" in meaningful:
-        return "the same sleepy baby-safe bedtime child and plush companion"
-    return f"a friendly magical guide inspired by {' '.join(meaningful[:4])}"
 
 
 def _character_source_path(rhyme: NurseryRhymeInput) -> str | None:
     return rhyme.character_bank_path or rhyme.character_db_path
 
 
-def _profile_terms(profile: CharacterProfile) -> set[str]:
-    values = [profile.label, profile.role or "", profile.description, *profile.visual_anchors]
-    return set().union(*(_semantic_keywords(value.replace("_", " ")) for value in values if value))
+def _planner_input_context(rhyme: NurseryRhymeInput) -> dict[str, Any]:
+    payload = rhyme.to_dict()
+    source = _character_source_path(rhyme)
+    if source:
+        payload["character_bank_entries"] = [
+            {
+                "label": profile.label,
+                "role": profile.role,
+                "description": profile.description,
+                "visual_anchors": profile.visual_anchors,
+                "allowed_variants": profile.allowed_variants,
+                "continuity_constraints": profile.continuity_constraints,
+                "negative_constraints": profile.negative_constraints,
+                "reference_image_paths": profile.reference_image_paths,
+            }
+            for profile in _character_bank(rhyme.visual_style, source)
+        ]
+    return payload
 
 
-def _select_character_profiles(bank: list[CharacterProfile], topic: str, lyric_line: str) -> list[CharacterProfile]:
-    wanted = _semantic_keywords(topic) | _semantic_keywords(lyric_line)
-    family = _setting_family(topic, lyric_line)
-    family_terms = {
-        "clock": {"clock", "mouse", "mice"},
-        "boat": {"boat", "duck", "river", "stream", "animal", "friend"},
-        "lamb": {"lamb", "sheep", "mary", "meadow"},
-        "rain": {"rain", "child", "garden", "raincoat"},
-        "star": {"star", "sleepy", "sky"},
-        "moon": {"moon", "sleepy", "sky"},
-    }.get(family or "", set())
-    if family_terms:
-        family_matches = [profile for profile in bank if family_terms & _profile_terms(profile)]
-        if family_matches:
-            return family_matches[:2]
-    scored: list[tuple[int, CharacterProfile]] = []
-    for profile in bank:
-        terms = _profile_terms(profile)
-        score = len(wanted & terms)
-        if score:
-            scored.append((score, profile))
-    if scored:
-        return [profile for _, profile in sorted(scored, key=lambda item: item[0], reverse=True)[:2]]
-    return bank[:1]
-
-
-def _character_consistency_sentence(bank: list[CharacterProfile], topic: str, lyric_line: str) -> str:
-    selected = _select_character_profiles(bank, topic, lyric_line)
-    if not selected:
-        return ""
-    descriptions = []
-    for profile in selected:
-        anchor = profile.description
-        if profile.visual_anchors:
-            anchor = f"{anchor}, with {', '.join(profile.visual_anchors[:3])}"
-        descriptions.append(anchor)
-    return "Recurring character reference: " + "; ".join(descriptions) + "."
-
-
-def _setting_details(topic: str, lyric_line: str, index: int, clip_count: int) -> str:
-    topic_terms = _topic_words(topic)
-    lower_line = lyric_line.lower()
-    frame = _setting_frame(topic, lyric_line, index)
-    motif = "the lullaby's main image"
-    if "star" in topic_terms or "twinkle" in topic_terms or "star" in lower_line:
-        motif = "tiny warm star lights, telescope toys, and soft celestial patterns"
-    elif "moon" in topic_terms or "moon" in lower_line:
-        motif = "pearl moon shapes, sleepy silver-blue cushions, and curved crescent decorations"
-    elif "lamb" in topic_terms or "sheep" in topic_terms or "lamb" in lower_line or "sheep" in lower_line:
-        motif = "woolly meadow textures, a little school path, rounded fences, and soft cream-colored flowers"
-    elif "rain" in topic_terms or "rainy" in topic_terms or "rain" in lower_line or "puddle" in lower_line:
-        motif = "gentle raindrop reflections, umbrella-like leaves, and warm window light"
-    elif "boat" in topic_terms or "row" in topic_terms or "stream" in lower_line:
-        motif = "paper boats, satin water ripples, and rounded shore shapes"
-    elif "hickory" in topic_terms or "clock" in topic_terms or "mouse" in topic_terms or "clock" in lower_line:
-        motif = "warm wooden clock textures, rounded brass clock hands, plush cushions, and a safe curved ramp"
-    elif topic_terms:
-        motif = f"soft child-safe props inspired by {' '.join(topic_terms[:4])}"
-    return f"{frame}, with {motif}"
-
-
-def _line_visual_action(topic: str, line: str, index: int, clip_count: int) -> str:
-    words = _text_words(line)
-    topic_words = set(_topic_words(topic))
-    combined = words | topic_words
-    if {"lamb", "sheep"} & combined:
-        if {"follow", "went", "go", "sure", "everywhere"} & words:
-            return "follows Mary along a rounded storybook path, matching the gentle rhythm without rushing"
-        if {"white", "snow", "fleece"} & words:
-            return "turns softly so its cream-colored wool catches the warm moonlit glow like plush fabric"
-        return "trots gently beside Mary, nuzzling a soft blanket while the scene stays quiet and safe"
-    if {"hickory", "dickory", "dock", "clock", "mouse"} & combined:
-        if {"up", "ran", "run"} & words and "clock" in words:
-            return "scurries up a wide safe wooden clock ramp while the brass hands glow softly"
-        if {"struck", "one"} & words:
-            return "pauses beside the glowing clock face as one tiny plush bell rocks once above it"
-        if {"down", "ran", "run"} & words:
-            return "scurries safely down a curved wooden clock ramp toward a soft cushion, never falling"
-        return "peeks around the cozy wooden clock as the nursery rhythm feels like a gentle tick-tock"
-    if {"rain", "rainy", "raindrop", "raindrops", "puddle", "puddles"} & combined:
-        if {"children", "child", "play"} & words:
-            return "steps from the covered path toward a dry play area as puddles sparkle and the rain clears"
-        if {"come", "again", "another", "day"} & words:
-            return "waves goodnight to a tiny raincloud drifting away beyond the warm window"
-        return "watches gentle raindrops slow on the glass while the cozy room brightens"
-    if {"boat", "boats", "row", "stream", "river"} & combined:
-        if {"stream", "down", "gently"} & words:
-            return "glides gently along the calm stream with satin ripples moving safely past rounded reeds"
-        if {"merrily", "merry"} & words:
-            return "bobs happily beside the paper boat while soft lantern reflections dance on the water"
-        if {"life", "dream"} & words:
-            return "drifts into a plush dream harbor where clouds and water reflections settle into sleep"
-        return "rows slowly through the toy river with smooth safe motion and clear open water ahead"
-    if {"wonder", "who", "what", "why", "where"} & words:
-        return "guides the child through a quiet dream as the child points upward"
-    if {"diamond", "bright", "light"} & words:
-        return "sparkles like a soft toy diamond, then smiles warmly"
-    if {"above", "high", "sky", "world"} & words:
-        return "rises above the toy town while plush clouds drift below"
-    if {"twinkle", "sparkle", "shine", "star"} & words:
-        return "pulses with soft friendly light and tiny fading sparkles"
-    if {"little", "small", "tiny"} & words:
-        return "bounces gently like a lantern while sleepy animals peek out with warm curious expressions"
-    if {"sleep", "dream", "goodnight", "hush", "lullaby"} & words:
-        return "settles the scene into sleep with drifting blankets and clouds"
-    if {"twinkle", "sparkle", "shine", "star"} & topic_words:
-        return "glides through the shot as a warm guiding light"
-    if index == clip_count:
-        return "returns the bedtime journey to a peaceful closing image, with the characters calm and ready for sleep"
-    return "creates a distinct gentle action that visualizes the lyric meaning through movement, expression, and setting"
-
-
-def _rich_scene_description(
-    topic: str,
-    lyric_line: str,
-    index: int,
-    clip_count: int,
-    visual_style: str,
-    character_bank: list[CharacterProfile] | None = None,
-) -> str:
-    subject = _topic_subject(topic)
-    setting = _setting_details(topic, lyric_line, index, clip_count)
-    action = _line_visual_action(topic, lyric_line, index, clip_count)
-    camera = _scene_camera_plan(index)
-    aesthetic = _scene_aesthetic_plan(index)
-    character_reference = _character_consistency_sentence(character_bank or [], topic, lyric_line)
-    continuity = (
-        f"Keep {subject} visually consistent, expressive, cute, rounded, and full-frame rather than framed inside a box."
-    )
-    safety = "Smooth slow motion, no scary shadows, no clutter, no written words, child-safe magical bedtime atmosphere."
-    if index == clip_count:
-        safety = (
-            "The ending should feel complete and sleepy: slow fade-ready motion, no harsh contrast, no written words, "
-            "consistent character design, soothing bedtime finale."
-        )
-    return (
-        f"Opening shot: {setting}. {subject.capitalize()} {action}. {camera}. "
-        f"{aesthetic}. {visual_style}. {character_reference} {continuity} {safety}"
-    )
 
 
 def _scene_description_is_specific(text: str) -> bool:
@@ -569,32 +340,6 @@ def _scene_description_is_specific(text: str) -> bool:
     )
 
 
-def _normalize_scene_description(
-    *,
-    topic: str,
-    lyric_line: str,
-    index: int,
-    clip_count: int,
-    visual_style: str,
-    raw_description: str | None,
-    character_bank: list[CharacterProfile] | None = None,
-) -> str:
-    description = _strip_leading_scene_label(raw_description or "")
-    if _scene_description_is_specific(description):
-        return description
-    if _scene_description_has_concrete_content(description):
-        visual_core = _strip_scene_production_notes(description)
-        subject = _topic_subject(topic)
-        character_reference = _character_consistency_sentence(character_bank or [], topic, lyric_line)
-        return (
-            f"Opening shot: {visual_core} {_scene_camera_plan(index)}. "
-            f"{_scene_aesthetic_plan(index)}. {visual_style}. "
-            f"{character_reference} Keep {subject} and the rhyme's main setting visually consistent, full-frame, and easy to read. "
-            "Smooth child-safe motion, uncluttered staging, no written words, no inset frame, no scary imagery."
-        )
-    return _rich_scene_description(topic, lyric_line, index, clip_count, visual_style, character_bank)
-
-
 def _scene_description_has_concrete_content(text: str) -> bool:
     lowered = text.lower()
     words = _text_words(text)
@@ -623,20 +368,6 @@ def _scene_description_has_concrete_content(text: str) -> bool:
         and len(content_words) >= 8
         and has_action
         and not any(phrase in lowered for phrase in generic_phrases)
-    )
-
-
-def _storyboard_action(
-    topic: str,
-    lyric_line: str,
-    index: int,
-    clip_count: int,
-    visual_style: str,
-    character_bank: list[CharacterProfile] | None = None,
-) -> tuple[str, str]:
-    return (
-        _rich_scene_description(topic, lyric_line, index, clip_count, visual_style, character_bank),
-        _scene_camera_plan(index),
     )
 
 
@@ -725,7 +456,9 @@ def _storyboard_prompt(
     end = index * STORYMEM_CLIP_SECONDS
     text_guard = "no generated text or readable words"
     scene_text = _strip_scene_production_notes(description)
-    camera_text = _normalize_camera(camera, index)
+    camera_text = _clean_sentence(camera) or "Camera unspecified by planner"
+    if camera_text and not camera_text.lower().startswith("camera"):
+        camera_text = f"Camera {camera_text}"
     aesthetic = _shot_pattern(index)
     style = visual_style
     if len(style) > 90:
@@ -754,15 +487,22 @@ def build_production_plan(rhyme: NurseryRhymeInput, *, target_fps: int = 24) -> 
 
     scenes = []
     for index, segment in enumerate(segments, start=1):
-        action, camera = _storyboard_action(rhyme.topic_or_name, segment.text, index, clip_count, rhyme.visual_style, bank)
-        action = _normalize_scene_description(
-            topic=rhyme.topic_or_name,
-            lyric_line=segment.text,
-            index=index,
-            clip_count=clip_count,
-            visual_style=rhyme.visual_style,
-            raw_description=action,
-            character_bank=bank,
+        selected_characters = [
+            {
+                "label": profile.label,
+                "selection_rationale": "non-agentic local dry-run scaffold",
+                "description": profile.description,
+            }
+            for profile in bank[:1]
+        ]
+        setting = "a calm full-frame bedtime storybook scene with foreground, midground, and background clearly separated"
+        subjects = selected_characters[0]["description"] if selected_characters else "a simple child-safe bedtime subject"
+        action_text = "performs a gentle visual action reserved for an external planner to define semantically"
+        camera = _scene_camera_plan(index)
+        action = (
+            f"Opening shot: {setting}. {subjects} {action_text}. {camera}. "
+            f"{rhyme.visual_style}, soft lighting, rounded shapes, uncluttered staging. "
+            "Non-agentic dry-run scaffold only; no generated text, no dialogue, no inset frame, no scary imagery."
         )
         prompt = _storyboard_prompt(
             index=index,
@@ -791,12 +531,22 @@ def build_production_plan(rhyme: NurseryRhymeInput, *, target_fps: int = 24) -> 
                 expected_mood="calm child-safe bedtime wonder",
                 boundary_behavior="fade" if index == clip_count else "hold",
                 regeneration_dependencies=[],
+                scene_goal="non-agentic dry-run scaffold",
+                lyric_interpretation="requires agentic planner review for semantic interpretation",
+                setting=setting,
+                subjects=subjects,
+                action=action_text,
+                camera=camera,
+                style=rhyme.visual_style,
+                safety_adaptation="no generated text, no dialogue, no inset frame, no scary imagery",
+                selected_characters=selected_characters,
+                review_status="approved",
             )
         )
 
     music_prompt = (
         f"{rhyme.audio_style}, full-song nursery-rhyme performance, exact lyrics, steady timing, "
-        "music box, celesta, glockenspiel star twinkles, soft strings, gentle fade-out"
+        "music box, celesta, glockenspiel shimmer, soft strings, gentle fade-out"
     )
     plan = ProductionPlan(
         version="1.0",
@@ -808,7 +558,7 @@ def build_production_plan(rhyme: NurseryRhymeInput, *, target_fps: int = 24) -> 
         scenes=scenes,
         audio_mode="full_song",
         music_prompt=music_prompt,
-        evaluation_rubric=DEFAULT_RUBRIC,
+        evaluation_rubric={**DEFAULT_RUBRIC, "planning_mode": "non_agentic_local_dry_run"},
     )
     plan.validate()
     return plan
@@ -816,7 +566,7 @@ def build_production_plan(rhyme: NurseryRhymeInput, *, target_fps: int = 24) -> 
 
 def _planner_prompt() -> str:
     return (
-        "You are PromptPlannerAgent for a local-first StoryMem lullaby video pipeline. "
+        "You are ScenePlannerAgent for a local-first StoryMem lullaby video pipeline. "
         "Given the user input, produce only strict JSON. If lyrics are supplied, preserve them exactly. "
         "If only a lullaby name/topic is supplied, generate or select the appropriate full lullaby lyrics; "
         "do not ask for missing clip count, duration, style, characters, timing, or scenes. "
@@ -826,13 +576,15 @@ def _planner_prompt() -> str:
         "Never output the same stanza more than twice. "
         "Honor optional user overrides exactly when present: target_duration_seconds, clip_count, target_audience, "
         "visual_style, audio_style, lyrics, character_bank_path, and character_db_path. "
-        "If a character bank is supplied, select relevant entries from that bank and keep their concise visual "
-        "descriptions unchanged across scenes. Only invent a generic missing character when no bank entry matches "
-        "a needed role, and make that character simple, named, and consistent. "
+        "If a character bank is supplied, inspect all entries and choose relevant characters agentically. "
+        "For every selected character include label, description, and selection_rationale. For every scene include "
+        "selected_characters with label and selection_rationale. Do not rely on downstream keyword matching. "
+        "Only invent a generic missing character when no bank entry fits a needed role, and make that character "
+        "simple, named, and consistent. "
         "StoryMem generates one short video clip per scene prompt; each generated clip is approximately five seconds. "
         "If the user does not explicitly provide target_duration_seconds, set total duration to clip_count * 5 seconds. "
         "If the user explicitly provides target_duration_seconds, choose enough clips to cover that duration at about five seconds per clip. "
-        "Choose a calm child-safe bedtime visual plan, complete clip count, total duration, lyric-to-scene plan, "
+        "Choose a calm child-safe bedtime visual plan, complete clip count, total duration, visual_bible, lyric-to-scene plan, "
         "characters, continuity constraints, negative constraints, scene descriptions, camera/motion notes, boundary behavior, "
         "and music prompt. Sung lullabies must be one continuous full-song track, never per-scene song fragments. "
         "Follow the Wan prompt recipe for each scene clip. Plan every clip with the Advanced Formula: "
@@ -847,8 +599,7 @@ def _planner_prompt() -> str:
         "sentence under 18 words. Do not place shot size, lens, color tone, composition, or repeated camera labels "
         "inside the camera field; those belong in the scene description once. "
         "Choose settings from the rhyme's own world. Do not mix unrelated default bedtime locations into a topic "
-        "where they do not belong; for example, a lamb rhyme should use meadow, path, fence, and schoolhouse staging, "
-        "not a bedroom or cloud-sky scene unless the user asked for a dream adaptation. "
+        "where they do not belong; let the planner/reviewer decide the lyric world from the supplied text. "
         "Each scene description must be a concrete paragraph in this format: 'Opening shot: [specific setting with "
         "foreground/background]. [specific subject] [specific action]. Camera [specific movement]. [visual style, "
         "lighting, color palette, mood]. [continuity and child-safety constraints].' The description must be rich "
@@ -858,8 +609,10 @@ def _planner_prompt() -> str:
         "Every visual scene must prohibit generated text, letters, scary imagery, clutter, unsafe content, dialogue, "
         "and background music, because audio and subtitles are handled separately. "
         "Return JSON matching the schema: lyrics as an array of lyric lines; clip_count; target_duration_seconds; "
-        "characters with label, description, continuity_constraints, negative_constraints, optional reference_image_paths; "
-        "scenes with scene_num, lyric_line, description, camera, expected_mood, boundary_behavior, and optional cut. "
+        "visual_bible; selected_characters with label, description, selection_rationale, continuity_constraints, "
+        "negative_constraints, optional reference_image_paths; "
+        "scenes with scene_num, lyric_line, scene_goal, lyric_interpretation, setting, subjects, action, camera, "
+        "style, safety_adaptation, selected_characters, expected_mood, boundary_behavior, optional cut, and review_status='pending'. "
         "Scene descriptions should describe visual meaning without copying literal lyric text into the visual prompt. "
         "Return music_prompt for the separate continuous full-song audio. "
         "Use enough clips to cover the generated or supplied lyrics unless the input explicitly gives clip_count."
@@ -877,7 +630,7 @@ def _list_from_decision(value: Any) -> list[str]:
 def _profiles_from_decision(decision: dict[str, Any], visual_style: str, character_path: str | None) -> list[CharacterProfile]:
     if character_path:
         return _character_bank(visual_style, character_path)
-    raw_characters = decision.get("characters") or decision.get("character_bank") or []
+    raw_characters = decision.get("selected_characters") or decision.get("characters") or decision.get("character_bank") or []
     profiles: list[CharacterProfile] = []
     if isinstance(raw_characters, list):
         for index, item in enumerate(raw_characters, start=1):
@@ -891,12 +644,10 @@ def _profiles_from_decision(decision: dict[str, Any], visual_style: str, charact
 
 
 def build_visual_bible(plan: ProductionPlan) -> dict[str, Any]:
-    topic = plan.rhyme.topic_or_name or plan.lyric_segments[0].text
-    family = _setting_family(topic, "\n".join(segment.text for segment in plan.lyric_segments))
     return {
-        "primary_world": family or "custom_lullaby_world",
+        "primary_world": str(plan.evaluation_rubric.get("visual_bible", {}).get("primary_world") or "agent_designed_world"),
         "visual_style": plan.rhyme.visual_style,
-        "allowed_locations": TOPIC_SETTING_FRAMES.get(family or "", SETTING_FRAMES[:4]),
+        "allowed_locations": list(plan.evaluation_rubric.get("visual_bible", {}).get("allowed_locations", [])),
         "recurring_characters": [
             {
                 "label": profile.label,
@@ -919,99 +670,36 @@ def build_visual_bible(plan: ProductionPlan) -> dict[str, Any]:
     }
 
 
-def _semantic_keywords(text: str) -> set[str]:
-    words = _text_words(text)
-    stopwords = {
-        "a", "an", "and", "are", "as", "be", "come", "do", "for", "go", "had", "has", "how", "i", "in", "is",
-        "it", "its", "like", "little", "now", "of", "on", "so", "the", "this", "to", "up", "was", "what", "with",
-        "you", "your", "away", "come", "again", "another", "day", "want", "sure",
-        "life", "but", "merrily", "merry", "hickory", "dickory", "dock", "hums", "hum", "gentle", "tune",
-        "line", "one", "two", "three", "four", "five", "six", "seven", "eight",
-    }
-    aliases = {
-        "mary": "child",
-        "twinkle": "star",
-        "sparkle": "star",
-        "shining": "star",
-        "moonlight": "moon",
-        "ran": "run",
-        "running": "run",
-        "went": "follow",
-        "go": "follow",
-        "following": "follow",
-        "follows": "follow",
-        "walks": "child",
-        "white": "wool",
-        "fleece": "wool",
-        "snow": "wool",
-        "row": "boat",
-        "rowing": "boat",
-        "stream": "river",
-        "puddles": "puddle",
-        "raindrops": "rain",
-        "children": "child",
-        "play": "toy",
-        "baby": "cradle",
-        "struck": "bell",
-        "down": "ramp",
-        "dream": "sleep",
-    }
-    return {aliases.get(word, word) for word in words if word not in stopwords and len(word) > 2}
-
-
-def _safe_description_for_line(line: str, description: str) -> bool:
-    line_words = _semantic_keywords(line)
-    text = description.lower()
-    fall_safe_negated = any(term in text for term in ["never falling", "no falling", "not falling"])
-    depicts_fall = (
-        not fall_safe_negated
-        and any(term in text for term in [" falls", " fall ", " falling", "falls downward", "fall toward", "downward through"])
-    )
-    risky_baby_descent = "baby" in line.lower() and "down" in line.lower()
-    if "fall" in line_words or "falls" in line.lower() or risky_baby_descent or depicts_fall:
-        return any(term in text for term in ["gently lowers", "caught", "settles safely", "rocking", "no falling", "softly settles"])
-    return True
-
-
-def validate_plan_semantics(plan: ProductionPlan) -> dict[str, Any]:
+def validate_plan_semantics(plan: ProductionPlan, *, require_reviewer_approval: bool = True) -> dict[str, Any]:
     issues: list[dict[str, Any]] = []
     plan.validate()
-    descriptions = [scene.description for scene in plan.scenes]
-    prompts = [scene.video_prompt for scene in plan.scenes]
+    required_scene_fields = [
+        "scene_goal",
+        "lyric_interpretation",
+        "setting",
+        "subjects",
+        "action",
+        "camera",
+        "style",
+        "safety_adaptation",
+    ]
     for scene in plan.scenes:
-        segment = next(segment for segment in plan.lyric_segments if segment.index == scene.lyric_segment_index)
-        lower_description = scene.description.lower()
         lower_prompt = scene.video_prompt.lower()
-        if not scene.description.startswith("Opening shot:"):
-            issues.append({"code": "scene_format", "scene_num": scene.scene_num, "message": "description must start with Opening shot:"})
-        if len(scene.description.split()) < 45:
-            issues.append({"code": "scene_too_short", "scene_num": scene.scene_num, "message": "description is too short for reliable video planning"})
+        for field_name in required_scene_fields:
+            if not str(getattr(scene, field_name, "")).strip():
+                issues.append({"code": "missing_structured_scene_field", "field": field_name, "scene_num": scene.scene_num, "message": f"scene missing {field_name}"})
+        if not scene.selected_characters:
+            issues.append({"code": "missing_character_selection_metadata", "scene_num": scene.scene_num, "message": "scene must include selected character metadata"})
+        elif any(not str(item.get("label", "")).strip() or not str(item.get("selection_rationale", item.get("rationale", ""))).strip() for item in scene.selected_characters if isinstance(item, dict)):
+            issues.append({"code": "incomplete_character_selection_metadata", "scene_num": scene.scene_num, "message": "selected characters require label and rationale"})
+        if require_reviewer_approval and scene.review_status != "approved":
+            issues.append({"code": "missing_reviewer_approval", "scene_num": scene.scene_num, "message": "scene requires reviewer approval before generation"})
         if len(scene.video_prompt) >= 900:
             issues.append({"code": "prompt_too_long", "scene_num": scene.scene_num, "message": "StoryMem prompt exceeds length budget"})
-        if any(term not in lower_prompt for term in ["no generated text", "no picture-in-picture", "no scary"]):
+        if any(term not in lower_prompt for term in ["no generated text", "no picture-in-picture", "no inset frame", "no scary"]):
             issues.append({"code": "missing_visual_guard", "scene_num": scene.scene_num, "message": "prompt is missing required visual guardrails"})
-        lyric_keywords = _semantic_keywords(segment.text)
-        topic_keywords = _semantic_keywords(plan.rhyme.topic_or_name)
-        scene_keywords = _semantic_keywords(scene.description)
-        matched_lyric_keywords = lyric_keywords & scene_keywords
-        required_matches = min(2, len(lyric_keywords))
-        if lyric_keywords and len(matched_lyric_keywords) < required_matches:
-            issues.append({"code": "lyric_mismatch", "scene_num": scene.scene_num, "message": f"scene does not visibly ground lyric: {segment.text}"})
-        elif not lyric_keywords and topic_keywords and not (topic_keywords & scene_keywords):
-            issues.append({"code": "topic_mismatch", "scene_num": scene.scene_num, "message": "scene does not visibly ground the requested topic"})
-        if not _safe_description_for_line(segment.text, scene.description):
-            issues.append({"code": "unsafe_literal_action", "scene_num": scene.scene_num, "message": "unsafe lyric action needs a child-safe visual adaptation"})
-        if any(phrase in lower_description for phrase in ["inspired by the input prompt", "current lyric meaning", "generic lullaby scene", "clear main subject area"]):
-            issues.append({"code": "generic_scene_text", "scene_num": scene.scene_num, "message": "description contains generic placeholder planning language"})
-        if plan.rhyme.character_bank_path or plan.rhyme.character_db_path:
-            selected_profiles = _select_character_profiles(plan.character_bank, plan.rhyme.topic_or_name, segment.text)
-            for profile in selected_profiles:
-                if profile.description and profile.description.lower() not in lower_description:
-                    issues.append({"code": "character_bank_not_used", "scene_num": scene.scene_num, "message": f"missing selected character description: {profile.label}"})
-    for index in range(len(descriptions) - 1):
-        ratio = difflib.SequenceMatcher(None, descriptions[index], descriptions[index + 1]).ratio()
-        if ratio > 0.82:
-            issues.append({"code": "near_duplicate_scenes", "scene_num": index + 2, "message": f"scene is too similar to previous scene ({ratio:.2f})"})
+        if "no dialogue" not in lower_prompt or "background music" not in lower_prompt:
+            issues.append({"code": "missing_audio_guard", "scene_num": scene.scene_num, "message": "prompt must keep dialogue and music out of visual generation"})
     return {
         "passed": not issues,
         "issue_count": len(issues),
@@ -1028,6 +716,62 @@ def _critic_prompt() -> str:
         "consistency, vague visual descriptions, and prompts that would create text, dialogue, inset frames, or "
         "background music. Be concrete and reference scene numbers."
     )
+
+
+def _raw_scene_field(raw: dict[str, Any], *names: str) -> str:
+    for name in names:
+        value = raw.get(name)
+        if value is not None and str(value).strip():
+            return _clean_sentence(str(value))
+    return ""
+
+
+def _selected_character_metadata(raw: dict[str, Any], decision: dict[str, Any]) -> list[dict[str, Any]]:
+    raw_selection = raw.get("selected_characters")
+    if raw_selection is None:
+        raw_selection = raw.get("characters")
+    if raw_selection is None:
+        raw_selection = decision.get("selected_characters")
+    if not isinstance(raw_selection, list):
+        return []
+    selected: list[dict[str, Any]] = []
+    for item in raw_selection:
+        if isinstance(item, str):
+            selected.append({"label": item, "selection_rationale": "selected by planner"})
+        elif isinstance(item, dict):
+            label = item.get("label") or item.get("id") or item.get("name")
+            rationale = item.get("selection_rationale") or item.get("rationale") or item.get("reason")
+            if label:
+                selected.append(
+                    {
+                        "label": str(label),
+                        "selection_rationale": str(rationale or "selected by planner"),
+                        **({"description": str(item["description"])} if item.get("description") else {}),
+                    }
+                )
+    return selected
+
+
+def _compile_scene_description(raw: dict[str, Any], visual_style: str) -> tuple[str, dict[str, str]]:
+    fields = {
+        "scene_goal": _raw_scene_field(raw, "scene_goal", "goal"),
+        "lyric_interpretation": _raw_scene_field(raw, "lyric_interpretation", "interpretation"),
+        "setting": _raw_scene_field(raw, "setting"),
+        "subjects": _raw_scene_field(raw, "subjects", "subject"),
+        "action": _raw_scene_field(raw, "action"),
+        "camera": _raw_scene_field(raw, "camera"),
+        "style": _raw_scene_field(raw, "style", "visual_style") or visual_style,
+        "safety_adaptation": _raw_scene_field(raw, "safety_adaptation", "safety"),
+    }
+    description = _strip_leading_scene_label(str(raw.get("description") or ""))
+    if all(fields[name] for name in ["setting", "subjects", "action", "camera", "style", "safety_adaptation"]):
+        description = (
+            f"Opening shot: {fields['setting']}. {fields['subjects']} {fields['action']}. "
+            f"{fields['camera']}. {fields['style']}. {fields['safety_adaptation']}."
+        )
+    elif description and not description.startswith("Opening shot:"):
+        description = f"Opening shot: {description}"
+    return description, fields
 
 
 class PlanCriticAgent:
@@ -1099,17 +843,8 @@ def production_plan_from_planner_decision(
     scenes = []
     for index, segment in enumerate(segments, start=1):
         raw = raw_scenes[index - 1] if index - 1 < len(raw_scenes) and isinstance(raw_scenes[index - 1], dict) else {}
-        raw_description = str(raw.get("description") or raw.get("action") or "")
-        description = _normalize_scene_description(
-            topic=rhyme.topic_or_name,
-            lyric_line=segment.text,
-            index=index,
-            clip_count=clip_count,
-            visual_style=rhyme.visual_style,
-            raw_description=raw_description,
-            character_bank=bank,
-        )
-        camera = str(raw.get("camera") or raw.get("motion") or _scene_camera_plan(index))
+        description, structured = _compile_scene_description(raw, rhyme.visual_style)
+        camera = structured["camera"]
         expected_mood = str(raw.get("expected_mood") or "calm child-safe bedtime wonder")
         boundary_behavior = str(raw.get("boundary_behavior") or ("fade" if index == clip_count else "hold"))
         prompt = _storyboard_prompt(
@@ -1121,10 +856,11 @@ def production_plan_from_planner_decision(
             no_text_constraint=no_text_constraint,
         )
         first_frame = (
-            f"Full-frame opening shot for a new edited scene: {description}; {_shot_pattern(index)}; "
+            f"Full-frame opening shot for a new edited scene: {description}; "
             "clean first frame, no written words, no letters, no captions, no inset frame, rounded bedtime storybook style."
         )
         cut = bool(raw.get("cut", True))
+        selected_characters = _selected_character_metadata(raw, decision)
         scenes.append(
             SceneBeat(
                 scene_num=index,
@@ -1140,11 +876,21 @@ def production_plan_from_planner_decision(
                 expected_mood=expected_mood,
                 boundary_behavior=boundary_behavior,
                 regeneration_dependencies=[] if cut else list(range(1, index)),
+                scene_goal=structured["scene_goal"],
+                lyric_interpretation=structured["lyric_interpretation"],
+                setting=structured["setting"],
+                subjects=structured["subjects"],
+                action=structured["action"],
+                camera=structured["camera"],
+                style=structured["style"],
+                safety_adaptation=structured["safety_adaptation"],
+                selected_characters=selected_characters,
+                review_status=str(raw.get("review_status") or "pending"),
             )
         )
     music_prompt = str(decision.get("music_prompt") or "").strip() or (
         f"{rhyme.audio_style}, full-song nursery-rhyme performance, exact lyrics, steady timing, "
-        "music box, celesta, glockenspiel star twinkles, soft strings, gentle fade-out"
+        "music box, celesta, glockenspiel shimmer, soft strings, gentle fade-out"
     )
     plan = ProductionPlan(
         version="1.0",
@@ -1156,7 +902,7 @@ def production_plan_from_planner_decision(
         scenes=scenes,
         audio_mode="full_song",
         music_prompt=music_prompt,
-        evaluation_rubric=DEFAULT_RUBRIC,
+        evaluation_rubric={**DEFAULT_RUBRIC, "visual_bible": decision.get("visual_bible", {}) if isinstance(decision.get("visual_bible"), dict) else {}},
     )
     plan.validate()
     return plan
@@ -1182,14 +928,28 @@ class PromptPlannerAgent:
         self.last_error: str | None = None
         self.used_fallback: bool = False
         self.plan_attempts: list[dict[str, Any]] = []
+        self.agent_steps: list[dict[str, Any]] = []
         self.last_validation_report: dict[str, Any] | None = None
         self.last_critic_report: dict[str, Any] | None = None
+
+    def _diagnostic_rejected_plan(self, rhyme: NurseryRhymeInput, reason: str) -> ProductionPlan:
+        plan = build_production_plan(rhyme, target_fps=self.target_fps)
+        for scene in plan.scenes:
+            scene.review_status = "rejected"
+            scene.lyric_interpretation = ""
+        plan.evaluation_rubric = {
+            **plan.evaluation_rubric,
+            "planning_mode": "diagnostic_rejected_scaffold",
+            "planner_failure_reason": reason,
+        }
+        return plan
 
     def plan(self, rhyme: NurseryRhymeInput) -> ProductionPlan:
         self.last_error = None
         self.last_response = None
         self.used_fallback = False
         self.plan_attempts = []
+        self.agent_steps = []
         self.last_validation_report = None
         self.last_critic_report = None
         if not self.backend:
@@ -1200,7 +960,7 @@ class PromptPlannerAgent:
             return plan
         self.last_prompt = _planner_prompt()
         self.last_schema = PLANNER_DECISION_SCHEMA
-        self.last_context = {"response_key": "planner", "input": rhyme.to_dict()}
+        self.last_context = {"response_key": "planner", "input": _planner_input_context(rhyme)}
         try:
             response = self.backend.generate_json(
                 self.last_prompt,
@@ -1209,10 +969,15 @@ class PromptPlannerAgent:
             )
         except Exception as exc:
             self.last_error = str(exc)
-            self.used_fallback = True
-            plan = build_production_plan(rhyme, target_fps=self.target_fps)
+            plan = self._diagnostic_rejected_plan(rhyme, str(exc))
             self.last_validation_report = validate_plan_semantics(plan)
-            self.last_critic_report = self.critic.review(plan, self.last_validation_report)
+            self.last_critic_report = {
+                "passed": False,
+                "issues": [{"code": "planner_backend_error", "message": str(exc), "scene_num": None}],
+                "scores": {},
+                "revision_notes": [],
+            }
+            self.agent_steps.append({"kind": "planner_draft", "attempt": 1, "status": "backend_error", "error": str(exc)})
             return plan
         self.last_response = response
         candidate = response.get("planner_decision", response.get("production_plan", response))
@@ -1226,13 +991,31 @@ class PromptPlannerAgent:
             except Exception as exc:
                 self.last_error = str(exc)
                 self.plan_attempts.append({"attempt": attempt + 1, "status": "conversion_failed", "error": str(exc), "candidate": candidate})
+                self.agent_steps.append({"kind": "planner_draft" if attempt == 0 else "planner_revision", "attempt": attempt + 1, "status": "conversion_failed", "error": str(exc), "candidate": candidate})
                 break
             last_plan = plan
-            deterministic_report = validate_plan_semantics(plan)
+            self.agent_steps.append({"kind": "planner_draft" if attempt == 0 else "planner_revision", "attempt": attempt + 1, "status": "converted", "candidate": candidate, "production_plan": plan.to_dict()})
+            deterministic_report = validate_plan_semantics(plan, require_reviewer_approval=False)
             critic_report = self.critic.review(plan, deterministic_report)
+            self.agent_steps.append({"kind": "plan_review", "attempt": attempt + 1, "status": "passed" if critic_report.get("passed") else "rejected", "review": critic_report})
             merged_issues = [*deterministic_report.get("issues", []), *critic_report.get("issues", [])]
-            self.last_validation_report = {**deterministic_report, "critic_passed": critic_report.get("passed"), "critic_issue_count": len(critic_report.get("issues", []))}
             self.last_critic_report = critic_report
+            if not merged_issues:
+                for scene in plan.scenes:
+                    scene.review_status = "approved"
+                self.last_validation_report = {
+                    **validate_plan_semantics(plan, require_reviewer_approval=True),
+                    "critic_passed": True,
+                    "critic_issue_count": 0,
+                }
+            else:
+                for scene in plan.scenes:
+                    scene.review_status = "rejected" if critic_report.get("issues") else scene.review_status
+                self.last_validation_report = {
+                    **validate_plan_semantics(plan, require_reviewer_approval=True),
+                    "critic_passed": critic_report.get("passed"),
+                    "critic_issue_count": len(critic_report.get("issues", [])),
+                }
             self.plan_attempts.append(
                 {
                     "attempt": attempt + 1,
@@ -1248,7 +1031,7 @@ class PromptPlannerAgent:
                 return plan
             revision_context = {
                 "response_key": f"planner_revision_{attempt + 1}",
-                "input": rhyme.to_dict(),
+                "input": _planner_input_context(rhyme),
                 "previous_decision": candidate,
                 "production_plan": plan.to_dict(),
                 "validation_issues": merged_issues,
@@ -1261,12 +1044,17 @@ class PromptPlannerAgent:
                 response = self.backend.generate_json(self.last_prompt, self.last_schema, revision_context)
             except Exception as exc:
                 self.last_error = str(exc)
+                self.agent_steps.append({"kind": "planner_revision", "attempt": attempt + 2, "status": "backend_error", "error": str(exc), "context": revision_context})
                 break
             candidate = response.get("planner_decision", response.get("production_plan", response))
         if last_plan is not None:
             return last_plan
-        self.used_fallback = True
-        fallback = build_production_plan(rhyme, target_fps=self.target_fps)
+        fallback = self._diagnostic_rejected_plan(rhyme, self.last_error or "planner did not produce a convertible plan")
         self.last_validation_report = validate_plan_semantics(fallback)
-        self.last_critic_report = self.critic.review(fallback, self.last_validation_report)
+        self.last_critic_report = {
+            "passed": False,
+            "issues": [{"code": "planner_conversion_failed", "message": self.last_error or "planner did not produce a convertible plan", "scene_num": None}],
+            "scores": {},
+            "revision_notes": [],
+        }
         return fallback

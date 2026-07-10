@@ -92,6 +92,16 @@ class SceneBeat:
     expected_mood: str = "calm bedtime wonder"
     boundary_behavior: str = "hold"
     regeneration_dependencies: list[int] = field(default_factory=list)
+    scene_goal: str = ""
+    lyric_interpretation: str = ""
+    setting: str = ""
+    subjects: str = ""
+    action: str = ""
+    camera: str = ""
+    style: str = ""
+    safety_adaptation: str = ""
+    selected_characters: list[dict[str, Any]] = field(default_factory=list)
+    review_status: str = "pending"
 
 
 @dataclass(slots=True)

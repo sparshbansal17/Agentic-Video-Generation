@@ -51,16 +51,24 @@ def build_user_prompt(payload: dict[str, Any]) -> str:
         '  "lyrics": ["line 1", "line 2"],\n'
         '  "clip_count": 2,\n'
         '  "target_duration_seconds": 10,\n'
-        '  "characters": [\n'
+        '  "visual_bible": {"primary_world": "concise world name", "allowed_locations": ["location"]},\n'
+        '  "selected_characters": [\n'
         '    {"label": "character_id", "role": "role", "description": "concise consistent visual description", '
-        '"visual_anchors": ["anchor"], "allowed_variants": ["variant"], '
+        '"selection_rationale": "why this character fits the lyrics", "visual_anchors": ["anchor"], "allowed_variants": ["variant"], '
         '"continuity_constraints": ["constraint"], "negative_constraints": ["avoidance"]}\n'
         "  ],\n"
         '  "scenes": [\n'
         '    {"scene_num": 1, "lyric_line": "line 1", '
-        '"description": "Opening shot: specific full-frame setting with foreground and background. Specific child-safe subject action. Camera specific movement. Visual style, lighting, color palette, mood, continuity, no text.", '
-        '"camera": "shot size, camera angle, lens, composition, and camera movement", '
-        '"expected_mood": "calm bedtime mood", "boundary_behavior": "hold", "cut": true}\n'
+        '"scene_goal": "what this scene must communicate", '
+        '"lyric_interpretation": "visual interpretation of the lyric", '
+        '"setting": "specific full-frame setting with foreground and background", '
+        '"subjects": "specific selected characters and visible anchors", '
+        '"action": "specific child-safe action", '
+        '"camera": "specific shot and camera movement", '
+        '"style": "visual style, lighting, color palette, mood", '
+        '"safety_adaptation": "no text, no dialogue, no inset frame, no scary imagery, safe adaptation details", '
+        '"selected_characters": [{"label": "character_id", "selection_rationale": "why used here"}], '
+        '"expected_mood": "calm bedtime mood", "boundary_behavior": "hold", "cut": true, "review_status": "pending"}\n'
         "  ],\n"
         '  "music_prompt": "continuous full-song lullaby audio prompt"\n'
         "}\n\n"
@@ -73,8 +81,9 @@ def build_user_prompt(payload: dict[str, Any]) -> str:
         "5 seconds per clip, capped at 12 clips unless the user explicitly requests more. "
         "Each lyric line must be unique unless repetition is essential to the known lullaby ending; never output "
         "the same stanza more than twice. "
-        "If the user input includes character_bank_path or character_db_path, treat the provided bank as selectable "
-        "constraints: choose relevant entries from that bank, keep their concise visual descriptions unchanged in "
+        "If the user input includes character_bank_entries, inspect all entries and choose relevant characters. "
+        "Do not use keyword aliases supplied by downstream code; make and justify the selection yourself. "
+        "Keep chosen concise visual descriptions unchanged in "
         "every scene where they appear, and only create a missing generic character when no bank entry fits a needed "
         "role. "
         "Follow the Wan prompt recipe for scene planning. Each clip must support the Advanced Formula: subject plus "
@@ -101,7 +110,7 @@ def build_user_prompt(payload: dict[str, Any]) -> str:
 def validate_decision(decision: dict[str, Any]) -> None:
     if decision.get("type") == "object" and "properties" in decision and "lyrics" not in decision:
         raise ValueError("planner returned a JSON schema instead of a planner decision")
-    required = ["lyrics", "clip_count", "target_duration_seconds", "characters", "scenes", "music_prompt"]
+    required = ["lyrics", "clip_count", "target_duration_seconds", "visual_bible", "selected_characters", "scenes", "music_prompt"]
     missing = [key for key in required if key not in decision]
     if missing:
         raise ValueError(f"planner decision missing required keys: {', '.join(missing)}")
@@ -109,8 +118,25 @@ def validate_decision(decision: dict[str, Any]) -> None:
         raise ValueError("planner decision requires non-empty lyrics array")
     if not isinstance(decision["scenes"], list) or not decision["scenes"]:
         raise ValueError("planner decision requires non-empty scenes array")
-    if not isinstance(decision["characters"], list) or not decision["characters"]:
-        raise ValueError("planner decision requires non-empty characters array")
+    if not isinstance(decision["selected_characters"], list) or not decision["selected_characters"]:
+        raise ValueError("planner decision requires non-empty selected_characters array")
+    required_scene_fields = {
+        "scene_goal",
+        "lyric_interpretation",
+        "setting",
+        "subjects",
+        "action",
+        "camera",
+        "style",
+        "safety_adaptation",
+        "selected_characters",
+    }
+    for index, scene in enumerate(decision["scenes"], start=1):
+        if not isinstance(scene, dict):
+            raise ValueError(f"scene {index} must be an object")
+        missing_scene = [field for field in required_scene_fields if not scene.get(field)]
+        if missing_scene:
+            raise ValueError(f"scene {index} missing required structured fields: {', '.join(missing_scene)}")
 
 
 def generate_with_transformers(model_name: str, user_prompt: str, max_new_tokens: int) -> str:
