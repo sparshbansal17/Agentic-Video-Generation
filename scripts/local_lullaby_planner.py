@@ -31,11 +31,29 @@ def build_user_prompt(payload: dict[str, Any]) -> str:
     previous_decision = context.get("previous_decision")
     revision_block = ""
     if validation_issues:
+        issue_codes = {
+            str(issue.get("code", ""))
+            for issue in validation_issues
+            if isinstance(issue, dict)
+        }
+        unsafe_instruction = ""
+        if "unsafe_visual_action" in issue_codes:
+            unsafe_instruction = (
+                "\nCRITICAL SAFETY REVISION REQUIRED:\n"
+                "- For every unsafe_visual_action scene, rewrite scene_goal, lyric_interpretation, action, setting, "
+                "subjects, and safety_adaptation.\n"
+                "- Do not use these words anywhere in scene fields: falling, falls, fall down, falling down, crash, "
+                "impact, drop toward.\n"
+                "- For Rock-a-bye or similar lyrics, reinterpret unsafe descent as a calm supported bedtime image: "
+                "the cradle is supported safely, gently lowers, settles safely on cushions, no falling, no impact.\n"
+                "- The replacement scene must still fit the lyric emotionally, but must describe only safe supported motion.\n"
+            )
         revision_block = (
             "\nThis is a revision request. Fix every validation issue below by returning a complete replacement "
             "planner decision JSON. Preserve supplied lyrics exactly and edit the structured scene descriptions, "
             "camera fields, characters, and continuity fields before prompt compilation.\n"
             f"Validation issues JSON:\n{json.dumps(validation_issues, indent=2)}\n"
+            f"{unsafe_instruction}\n"
         )
         if previous_decision:
             revision_block += f"Previous planner decision JSON:\n{json.dumps(previous_decision, indent=2)}\n"

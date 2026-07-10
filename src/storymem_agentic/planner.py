@@ -1101,7 +1101,10 @@ class PromptPlannerAgent:
                 "validation_issues": merged_issues,
                 "instruction": (
                     "Return a complete replacement planner decision JSON. Preserve supplied lyrics exactly. "
-                    "Edit structured scene descriptions/camera fields to fix only the listed issues before prompt compilation."
+                    "Edit structured scene descriptions/camera fields to fix only the listed issues before prompt compilation. "
+                    "For unsafe_visual_action, rewrite scene_goal, lyric_interpretation, action, setting, subjects, "
+                    "and safety_adaptation so no unsafe falling/crashing/impact is depicted; use safe supported motion "
+                    "such as no falling, gently lowers, supported safely, or settles safely."
                 ),
             }
             try:
