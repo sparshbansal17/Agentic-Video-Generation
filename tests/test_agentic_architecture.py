@@ -351,6 +351,42 @@ class AgenticArchitectureTests(unittest.TestCase):
         self.assertTrue(validate_plan_semantics(plan)["passed"])
         self.assertEqual([step["kind"] for step in planner.agent_steps], ["planner_draft", "plan_review", "planner_revision", "plan_review"])
 
+    def test_unsafe_motion_feedback_drives_general_agentic_revision(self):
+        initial = self._structured_decision(["High branch line", "Safe landing line"], character_label="guide")
+        initial["scenes"][0]["action"] = "the small guide falls from a high platform"
+        initial["scenes"][0]["safety_adaptation"] = "no text, no dialogue, no inset frame, no scary imagery"
+        revised = self._structured_decision(["High branch line", "Safe landing line"], scene_suffix=" revised", character_label="guide")
+        revised["scenes"][0]["action"] = "the small guide gently lowers on a supported cushion path"
+        revised["scenes"][0]["safety_adaptation"] = "supported safely, no dialogue, no generated text, no inset frame, no scary imagery"
+        backend = MockAgentBackend(responses={"planner": initial, "planner_revision_1": revised})
+
+        planner = PromptPlannerAgent(backend, max_plan_revisions=1)
+        plan = planner.plan(NurseryRhymeInput(topic_or_name="generic safety lullaby"))
+
+        first_attempt_issues = planner.plan_attempts[0]["deterministic_report"]["issues"]
+        unsafe_issue = next(issue for issue in first_attempt_issues if issue["code"] == "unsafe_visual_action")
+        self.assertIn("evidence", unsafe_issue)
+        self.assertTrue(validate_plan_semantics(plan)["passed"])
+        self.assertIn("supported cushion path", plan.scenes[0].description)
+        self.assertNotIn("falls", plan.scenes[0].description.lower())
+
+    def test_natural_falling_rain_is_not_unsafe_motion(self):
+        plan = build_production_plan(
+            NurseryRhymeInput(lyrics="Rain taps softly\nDream now\n", target_duration_seconds=10, clip_count=2)
+        )
+        plan.scenes[0].setting = "a garden window with raindrops falling in the background"
+        plan.scenes[0].description = (
+            "Opening shot: a garden window with raindrops falling in the background. "
+            "same toddler-safe pajama child in every scene watches calmly. "
+            "Camera holds still. soft style. no generated text, no dialogue, no inset frame, no scary imagery."
+        )
+        plan.scenes[0].video_prompt = (
+            "Scene 1, toddler-safe lullaby animation: raindrops falling outside a window. "
+            "No dialogue or background music, no generated text, no picture-in-picture, no inset frame, no scary elements."
+        )
+
+        self.assertTrue(validate_plan_semantics(plan)["passed"])
+
     def test_model_review_normalizer_accepts_scalar_scores(self):
         report = _normalize_model_report(
             "VisualSafetyReviewAgent",

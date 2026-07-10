@@ -608,9 +608,9 @@ def _planner_prompt() -> str:
         "do not rely on a repeated character-bank prefix being added later. "
         "Every visual scene must prohibit generated text, letters, scary imagery, clutter, unsafe content, dialogue, "
         "and background music, because audio and subtitles are handled separately. "
-        "For unsafe lyric events involving a child, baby, cradle, character, or object falling, breaking, crashing, "
-        "or dropping, do not visualize the impact or use falling/falls/crash wording. Adapt it into a supported, "
-        "safe bedtime image such as gently lowers, supported safely, no falling, or settles safely. "
+        "For unsafe lyric events involving unsupported descent, breakage, dropping, crashing, impact, or dangerous "
+        "motion by a child, character, prop, vehicle, support, or object, do not visualize the hazard. Adapt the "
+        "scene into visibly safe supported motion and remove hazardous wording from structured fields. "
         "Return JSON matching the schema: lyrics as an array of lyric lines; clip_count; target_duration_seconds; "
         "visual_bible; selected_characters with label, description, selection_rationale, continuity_constraints, "
         "negative_constraints, optional reference_image_paths; "
@@ -703,8 +703,19 @@ def validate_plan_semantics(plan: ProductionPlan, *, require_reviewer_approval: 
             issues.append({"code": "missing_visual_guard", "scene_num": scene.scene_num, "message": "prompt is missing required visual guardrails"})
         if "no dialogue" not in lower_prompt or "background music" not in lower_prompt:
             issues.append({"code": "missing_audio_guard", "scene_num": scene.scene_num, "message": "prompt must keep dialogue and music out of visual generation"})
-        if _violates_safety_guardrail(scene.description) or _violates_safety_guardrail(scene.video_prompt):
-            issues.append({"code": "unsafe_visual_action", "scene_num": scene.scene_num, "message": "scene contains an unsafe visual action that must be adapted before generation"})
+        safety_hits = [
+            *_unsafe_safety_hits(scene.description, field="description"),
+            *_unsafe_safety_hits(scene.video_prompt, field="video_prompt"),
+        ]
+        if safety_hits:
+            issues.append(
+                {
+                    "code": "unsafe_visual_action",
+                    "scene_num": scene.scene_num,
+                    "message": "scene contains an unsafe visual action that must be adapted before generation",
+                    "evidence": safety_hits,
+                }
+            )
     return {
         "passed": not issues,
         "issue_count": len(issues),
@@ -809,13 +820,14 @@ def _compile_scene_description(
     return description, fields
 
 
-def _violates_safety_guardrail(text: str) -> bool:
+def _unsafe_safety_hits(text: str, *, field: str) -> list[dict[str, str]]:
     lowered = f" {str(text or '').lower()} "
     lowered = re.sub(r"\b(?:rain|raindrops|snow|snowflakes|leaves|petals|water)\s+(?:is\s+|are\s+)?falling\b", " ", lowered)
     safe_adaptation_terms = [
         "no falling",
         "never falling",
         "not falling",
+        "not fall",
         "settles safely",
         "lands safely",
         "caught safely",
@@ -823,19 +835,30 @@ def _violates_safety_guardrail(text: str) -> bool:
         "floating gently",
         "gently lowers",
     ]
-    if any(term in lowered for term in safe_adaptation_terms):
-        return False
+    for term in safe_adaptation_terms:
+        lowered = lowered.replace(term, " ")
     unsafe_patterns = [
+        r"\bfall\b",
         r"\bfalling\b",
         r"\bfalls\b",
         r"\bfall down\b",
         r"\bfalling down\b",
         r"\bfall toward\b",
+        r"\babout to fall\b",
         r"\bdrop toward\b",
+        r"\bdropping\b",
         r"\bcrash(?:es|ing)?\b",
         r"\bimpact(?:s|ing)?\b",
+        r"\b(?:break|breaks|breaking)\b.{0,40}\b(?:cradle|branch|bough|support|rope|rail)\b",
+        r"\b(?:cradle|branch|bough|support|rope|rail)\b.{0,40}\b(?:break|breaks|breaking)\b",
     ]
-    return any(re.search(pattern, lowered) for pattern in unsafe_patterns)
+    hits: list[dict[str, str]] = []
+    for pattern in unsafe_patterns:
+        match = re.search(pattern, lowered)
+        if match:
+            excerpt = " ".join(lowered[max(0, match.start() - 80): match.end() + 80].split())
+            hits.append({"field": field, "pattern": pattern, "excerpt": excerpt})
+    return hits
 
 
 class PlanCriticAgent:
@@ -1102,9 +1125,10 @@ class PromptPlannerAgent:
                 "instruction": (
                     "Return a complete replacement planner decision JSON. Preserve supplied lyrics exactly. "
                     "Edit structured scene descriptions/camera fields to fix only the listed issues before prompt compilation. "
-                    "For unsafe_visual_action, rewrite scene_goal, lyric_interpretation, action, setting, subjects, "
-                    "and safety_adaptation so no unsafe falling/crashing/impact is depicted; use safe supported motion "
-                    "such as no falling, gently lowers, supported safely, or settles safely."
+                    "For unsafe_visual_action, use issue evidence excerpts to rewrite scene_goal, lyric_interpretation, "
+                    "action, setting, subjects, camera, and safety_adaptation so unsupported descent, breakage, "
+                    "dropping, crashing, impact, or other hazardous motion is replaced by visibly safe supported motion. "
+                    "Remove hazardous wording from the scene instead of only adding a negation."
                 ),
             }
             try:
