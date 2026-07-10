@@ -700,6 +700,8 @@ def validate_plan_semantics(plan: ProductionPlan, *, require_reviewer_approval: 
             issues.append({"code": "missing_visual_guard", "scene_num": scene.scene_num, "message": "prompt is missing required visual guardrails"})
         if "no dialogue" not in lower_prompt or "background music" not in lower_prompt:
             issues.append({"code": "missing_audio_guard", "scene_num": scene.scene_num, "message": "prompt must keep dialogue and music out of visual generation"})
+        if _violates_safety_guardrail(scene.description) or _violates_safety_guardrail(scene.video_prompt):
+            issues.append({"code": "unsafe_visual_action", "scene_num": scene.scene_num, "message": "scene contains an unsafe visual action that must be adapted before generation"})
     return {
         "passed": not issues,
         "issue_count": len(issues),
@@ -802,6 +804,34 @@ def _compile_scene_description(
     elif description and not description.startswith("Opening shot:"):
         description = f"Opening shot: {description}"
     return description, fields
+
+
+def _violates_safety_guardrail(text: str) -> bool:
+    lowered = f" {str(text or '').lower()} "
+    safe_adaptation_terms = [
+        "no falling",
+        "never falling",
+        "not falling",
+        "settles safely",
+        "lands safely",
+        "caught safely",
+        "supported safely",
+        "floating gently",
+        "gently lowers",
+    ]
+    if any(term in lowered for term in safe_adaptation_terms):
+        return False
+    unsafe_patterns = [
+        r"\bfalling\b",
+        r"\bfalls\b",
+        r"\bfall down\b",
+        r"\bfalling down\b",
+        r"\bfall toward\b",
+        r"\bdrop toward\b",
+        r"\bcrash(?:es|ing)?\b",
+        r"\bimpact(?:s|ing)?\b",
+    ]
+    return any(re.search(pattern, lowered) for pattern in unsafe_patterns)
 
 
 class PlanCriticAgent:
