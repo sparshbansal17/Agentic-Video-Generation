@@ -608,6 +608,9 @@ def _planner_prompt() -> str:
         "do not rely on a repeated character-bank prefix being added later. "
         "Every visual scene must prohibit generated text, letters, scary imagery, clutter, unsafe content, dialogue, "
         "and background music, because audio and subtitles are handled separately. "
+        "For unsafe lyric events involving a child, baby, cradle, character, or object falling, breaking, crashing, "
+        "or dropping, do not visualize the impact or use falling/falls/crash wording. Adapt it into a supported, "
+        "safe bedtime image such as gently lowers, supported safely, no falling, or settles safely. "
         "Return JSON matching the schema: lyrics as an array of lyric lines; clip_count; target_duration_seconds; "
         "visual_bible; selected_characters with label, description, selection_rationale, continuity_constraints, "
         "negative_constraints, optional reference_image_paths; "
@@ -808,6 +811,7 @@ def _compile_scene_description(
 
 def _violates_safety_guardrail(text: str) -> bool:
     lowered = f" {str(text or '').lower()} "
+    lowered = re.sub(r"\b(?:rain|raindrops|snow|snowflakes|leaves|petals|water)\s+(?:is\s+|are\s+)?falling\b", " ", lowered)
     safe_adaptation_terms = [
         "no falling",
         "never falling",

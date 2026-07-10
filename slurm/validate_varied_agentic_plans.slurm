@@ -79,6 +79,7 @@ for run_dir in sorted(path for path in root.iterdir() if path.is_dir()):
     lengths = [len(prompt) for prompt in prompts]
     valid = (
         not planner["used_fallback"]
+        and planner["validation_passed"]
         and len(scenes) == 4
         and distinct
         and all(300 <= length <= 900 for length in lengths)
@@ -88,6 +89,8 @@ for run_dir in sorted(path for path in root.iterdir() if path.is_dir()):
         "run": run_dir.name,
         "valid": valid,
         "used_fallback": planner["used_fallback"],
+        "validation_passed": planner["validation_passed"],
+        "validation_issue_count": planner["validation_issue_count"],
         "scene_count": len(scenes),
         "distinct_prompts": distinct,
         "prompt_lengths": lengths,

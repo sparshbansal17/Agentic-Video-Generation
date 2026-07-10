@@ -101,7 +101,9 @@ def build_user_prompt(payload: dict[str, Any]) -> str:
         "scene description; do not assume a repeated character-bank prefix will be added later. "
         "Never describe a small framed box, inset image, picture-in-picture, poster, border, title card, or screen-within-screen. "
         "Adapt unsafe literal rhyme events into calm child-safe visuals; for example, never show babies, children, "
-        "cradles, or characters falling or striking the ground. "
+        "cradles, or characters falling or striking the ground. If validation reports unsafe_visual_action, rewrite "
+        "the affected scene so it avoids falling/falls/crash/drop wording for babies, children, cradles, characters, "
+        "or objects, and instead says no falling, supported safely, gently lowers, or settles safely. "
         "Do not include dialogue or background music in visual scenes; audio is generated separately. "
         "Return only valid JSON. Do not return a JSON schema. Do not wrap it in markdown."
     )
