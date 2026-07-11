@@ -73,6 +73,15 @@ def build_user_prompt(payload: dict[str, Any]) -> str:
         )
         if previous_decision:
             revision_block += f"Previous planner decision JSON:\n{json.dumps(previous_decision, indent=2)}\n"
+        return (
+            "Revise a structured video plan by returning a SMALL JSON PATCH, not the complete plan.\n"
+            "The patch shape is: {\"scene_revisions\": [{\"scene_num\": 1, \"field_to_change\": "
+            "\"replacement value\"}], \"plan_updates\": {}}. Include every field needed to resolve each issue, "
+            "but do not include unchanged scenes or explanatory prose. Preserve lyrics and character identity.\n"
+            f"{revision_block}\n"
+            "Return only the JSON patch. Verify that each replacement differs from previous_decision and directly "
+            "satisfies the corresponding issue message and evidence."
+        )
     return (
         "Create the lullaby production-planning JSON now.\n\n"
         "Planning directions:\n"
@@ -146,6 +155,12 @@ def build_user_prompt(payload: dict[str, Any]) -> str:
 
 
 def validate_decision(decision: dict[str, Any]) -> None:
+    if "scene_revisions" in decision:
+        if not isinstance(decision["scene_revisions"], list) or not decision["scene_revisions"]:
+            raise ValueError("revision patch requires non-empty scene_revisions array")
+        if any(not isinstance(item, dict) or not item.get("scene_num") for item in decision["scene_revisions"]):
+            raise ValueError("each scene revision requires scene_num and changed fields")
+        return
     if decision.get("type") == "object" and "properties" in decision and "lyrics" not in decision:
         raise ValueError("planner returned a JSON schema instead of a planner decision")
     required = ["lyrics", "clip_count", "target_duration_seconds", "visual_bible", "selected_characters", "scenes", "music_prompt"]

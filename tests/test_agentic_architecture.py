@@ -351,6 +351,28 @@ class AgenticArchitectureTests(unittest.TestCase):
         self.assertTrue(validate_plan_semantics(plan)["passed"])
         self.assertEqual([step["kind"] for step in planner.agent_steps], ["planner_draft", "plan_review", "planner_revision", "plan_review"])
 
+    def test_planner_accepts_small_agent_authored_revision_patch(self):
+        initial = self._structured_decision(["Copper kite", "Velvet hill"], character_label="fox")
+        initial["scenes"][1]["setting"] = initial["scenes"][0]["setting"]
+        initial["scenes"][1]["action"] = initial["scenes"][0]["action"]
+        initial["scenes"][1]["camera"] = initial["scenes"][0]["camera"]
+        patch = {
+            "scene_revisions": [{
+                "scene_num": 2,
+                "setting": "a velvet hilltop with copper grass in the foreground and distant clouds",
+                "action": "the same fox catches the kite ribbon gently as it arcs over the hill",
+                "camera": "Camera tracks uphill beside the fox and settles on the kite",
+            }],
+            "plan_updates": {},
+        }
+        backend = MockAgentBackend(responses={"planner": initial, "planner_revision_1": patch})
+
+        planner = PromptPlannerAgent(backend, max_plan_revisions=1)
+        plan = planner.plan(NurseryRhymeInput(topic_or_name="original copper kite journey"))
+
+        self.assertTrue(validate_plan_semantics(plan)["passed"])
+        self.assertIn("velvet hilltop", plan.scenes[1].setting)
+
     def test_unchanged_invalid_revision_is_reported_generically(self):
         invalid = self._structured_decision(["Copper kite", "Velvet hill"], character_label="fox")
         invalid["scenes"][1]["setting"] = invalid["scenes"][0]["setting"]
@@ -429,6 +451,11 @@ class AgenticArchitectureTests(unittest.TestCase):
                             "scene_num": "1",
                             "reason": "shot size contradicts the camera move",
                             "field": "camera",
+                            "evidence": {
+                                "observed": "a static wide shot and a close tracking move are both requested",
+                                "expected": "one coherent camera direction",
+                                "source": "scene 1 camera",
+                            },
                             "suggested_change": "use one eye-level tracking direction",
                         }],
                         "scores": {"prompt_generatability": 1.4, "lyric_alignment": "0.8", "bad": "unknown"},
@@ -444,6 +471,31 @@ class AgenticArchitectureTests(unittest.TestCase):
         self.assertEqual(report["issues"][0]["scene_num"], 1)
         self.assertEqual(report["scores"], {"prompt_generatability": 1.0, "lyric_alignment": 0.8})
         self.assertEqual(report["revision_notes"], ["Resolve the camera field"])
+
+    def test_ungrounded_critic_claim_is_advisory_not_blocking(self):
+        decision = self._structured_decision(["A lamb looks up with curiosity"])
+        plan = PromptPlannerAgent(MockAgentBackend(responses={"planner": decision}), max_plan_revisions=0).plan(
+            NurseryRhymeInput(topic_or_name="original curious lamb lullaby")
+        )
+        critic = PlanCriticAgent(
+            MockAgentBackend(responses={"plan_critic": {
+                "passed": False,
+                "issues": [{
+                    "code": "visual_continuity",
+                    "scene_num": 1,
+                    "message": "looking upward is inconsistent",
+                    "field": "action",
+                    "evidence": "the lamb looks upward",
+                    "suggested_change": "make the lamb look elsewhere",
+                }],
+            }})
+        )
+
+        report = critic.review(plan, validate_plan_semantics(plan, require_reviewer_approval=False))
+
+        self.assertTrue(report["passed"])
+        self.assertEqual(report["issues"], [])
+        self.assertEqual(report["warnings"][0]["code"], "visual_continuity")
 
     def test_consecutive_identical_staging_requires_revision(self):
         decision = self._structured_decision(["Line one", "Line two"])

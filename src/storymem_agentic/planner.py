@@ -134,7 +134,15 @@ PLAN_CRITIC_SCHEMA: dict[str, Any] = {
                     "message": {"type": "string"},
                     "scene_num": {"type": ["integer", "null"]},
                     "field": {"type": ["string", "null"]},
-                    "evidence": {},
+                    "evidence": {
+                        "type": "object",
+                        "required": ["observed", "expected", "source"],
+                        "properties": {
+                            "observed": {"type": "string"},
+                            "expected": {"type": "string"},
+                            "source": {"type": "string"},
+                        },
+                    },
                     "suggested_change": {"type": "string"},
                 },
             },
@@ -772,7 +780,11 @@ def _critic_prompt() -> str:
         "contradictory, overloads a five-second clip, conflicts on camera direction, or requests generated text, "
         "dialogue, inset frames, or background music. For each semantic issue return a stable snake_case code, exact "
         "scene_num (or null for plan-wide issues), affected field when known, concise evidence, and a suggested_change "
-        "that preserves the user's input. Deterministic issues in context are already enforced and will be merged by "
+        "that preserves the user's input. Evidence must be an object with observed (an exact plan fact), expected "
+        "(the conflicting requirement), and source (the field, lyric, visual-bible rule, or comparison scene). Only "
+        "review planner-owned fields present in review_plan; do not review derived prompts, timing, audio_description, "
+        "first_frame_prompt, subtitle metadata, or guardrail wording. A prohibition such as 'no generated text' is a "
+        "valid guardrail, not a request to generate text. Deterministic issues in context are already enforced and will be merged by "
         "the orchestrator; do not omit or contradict them, but do not duplicate them. Set passed=false whenever you "
         "return an issue. A safe adaptation must change the depicted event itself rather than merely negate hazardous "
         "words. Approval means the plan is specific, coherent, distinct, safe, and directly generatable."
@@ -957,6 +969,66 @@ def _normalize_critic_scores(value: Any) -> dict[str, float]:
     return scores
 
 
+def _critic_review_plan(plan: ProductionPlan) -> dict[str, Any]:
+    scene_fields = (
+        "scene_num",
+        "scene_goal",
+        "lyric_interpretation",
+        "setting",
+        "subjects",
+        "action",
+        "camera",
+        "style",
+        "safety_adaptation",
+        "selected_characters",
+        "expected_mood",
+        "boundary_behavior",
+        "cut",
+    )
+    return {
+        "lyrics": [segment.text for segment in plan.lyric_segments],
+        "visual_bible": build_visual_bible(plan),
+        "selected_characters": [
+            {
+                "label": profile.label,
+                "role": profile.role,
+                "description": profile.description,
+                "visual_anchors": profile.visual_anchors,
+                "allowed_variants": profile.allowed_variants,
+                "continuity_constraints": profile.continuity_constraints,
+                "negative_constraints": profile.negative_constraints,
+            }
+            for profile in plan.character_bank
+        ],
+        "scenes": [
+            {field: getattr(scene, field) for field in scene_fields}
+            for scene in plan.scenes
+        ],
+        "music_prompt": plan.music_prompt,
+    }
+
+
+def _critic_issue_is_actionable(issue: dict[str, Any], scene_count: int) -> bool:
+    editable_scene_fields = {
+        "scene_goal", "lyric_interpretation", "setting", "subjects", "action", "camera", "style",
+        "safety_adaptation", "selected_characters", "expected_mood", "boundary_behavior", "cut",
+    }
+    plan_fields = {"visual_bible", "selected_characters", "music_prompt", "scenes"}
+    field = str(issue.get("field") or "").split("[", 1)[0]
+    scene_num = issue.get("scene_num")
+    if scene_num is None:
+        if field not in plan_fields:
+            return False
+    elif not isinstance(scene_num, int) or not 1 <= scene_num <= scene_count or field not in editable_scene_fields:
+        return False
+    evidence = issue.get("evidence")
+    if not isinstance(evidence, dict):
+        return False
+    if not all(str(evidence.get(key) or "").strip() for key in ("observed", "expected", "source")):
+        return False
+    return bool(str(issue.get("suggested_change") or "").strip())
+
+
 class PlanCriticAgent:
     def __init__(self, backend: AgentBackend | None = None) -> None:
         self.backend = backend
@@ -983,7 +1055,7 @@ class PlanCriticAgent:
         self.last_schema = PLAN_CRITIC_SCHEMA
         self.last_context = {
             "response_key": "plan_critic",
-            "production_plan": plan.to_dict(),
+            "review_plan": _critic_review_plan(plan),
             "deterministic_report": deterministic_report,
             "review_contract": {
                 "independent_dimensions": [
@@ -1010,10 +1082,21 @@ class PlanCriticAgent:
             }
         self.last_response = response
         raw_issues = response.get("issues", [])
+        protocol_issues: list[dict[str, Any]] = []
         if not isinstance(raw_issues, list):
-            raw_issues = [{"code": "critic_invalid_issues", "message": "critic issues must be a list", "scene_num": None}]
-        issues = [_normalize_critic_issue(issue, index) for index, issue in enumerate(raw_issues, start=1)]
-        if response.get("passed") is False and not issues:
+            protocol_issues.append(
+                {"code": "critic_invalid_issues", "message": "critic issues must be a list", "scene_num": None}
+            )
+            raw_issues = []
+        normalized_issues = [_normalize_critic_issue(issue, index) for index, issue in enumerate(raw_issues, start=1)]
+        issues = [issue for issue in normalized_issues if _critic_issue_is_actionable(issue, len(plan.scenes))]
+        warnings = [
+            {**issue, "warning": "critic claim was not grounded in editable planner fields with comparative evidence"}
+            for issue in normalized_issues
+            if issue not in issues
+        ]
+        issues.extend(protocol_issues)
+        if response.get("passed") is False and not raw_issues and not protocol_issues:
             issues.append(
                 {
                     "code": "critic_rejected_without_issues",
@@ -1031,12 +1114,13 @@ class PlanCriticAgent:
             if isinstance(issue, dict) and (str(issue.get("code")), issue.get("scene_num")) not in known:
                 issues.append(issue)
         return {
-            "passed": bool(response.get("passed", not issues)) and not issues,
+            "passed": not issues,
             "issues": issues,
             "scores": _normalize_critic_scores(response.get("scores", {})),
             "revision_notes": [
                 _clean_sentence(str(note)) for note in response.get("revision_notes", []) if str(note).strip()
             ] if isinstance(response.get("revision_notes", []), list) else [],
+            "warnings": warnings,
         }
 
 
@@ -1129,6 +1213,49 @@ def production_plan_from_planner_decision(
     )
     plan.validate()
     return plan
+
+
+def _apply_planner_revision(previous: dict[str, Any], response: dict[str, Any]) -> dict[str, Any]:
+    revisions = response.get("scene_revisions")
+    if not isinstance(revisions, list):
+        return response.get("planner_decision", response.get("production_plan", response))
+    revised = json.loads(json.dumps(previous))
+    scenes = revised.get("scenes")
+    if not isinstance(scenes, list):
+        raise ValueError("scene revision requires a previous decision with scenes")
+    by_number = {
+        int(scene.get("scene_num", index)): scene
+        for index, scene in enumerate(scenes, start=1)
+        if isinstance(scene, dict)
+    }
+    editable = {
+        "scene_goal", "lyric_interpretation", "setting", "subjects", "action", "camera", "style",
+        "safety_adaptation", "selected_characters", "expected_mood", "boundary_behavior", "cut",
+    }
+    changed = False
+    for revision in revisions:
+        if not isinstance(revision, dict):
+            continue
+        try:
+            scene_num = int(revision.get("scene_num"))
+        except (TypeError, ValueError):
+            continue
+        target = by_number.get(scene_num)
+        if target is None:
+            continue
+        for field in editable:
+            if field in revision and revision[field] != target.get(field):
+                target[field] = revision[field]
+                changed = True
+    plan_updates = response.get("plan_updates", {})
+    if isinstance(plan_updates, dict):
+        for field in ("visual_bible", "selected_characters", "music_prompt"):
+            if field in plan_updates and plan_updates[field] != revised.get(field):
+                revised[field] = plan_updates[field]
+                changed = True
+    if not changed:
+        return revised
+    return revised
 
 
 class PromptPlannerAgent:
@@ -1296,7 +1423,7 @@ class PromptPlannerAgent:
                 self.last_error = str(exc)
                 self.agent_steps.append({"kind": "planner_revision", "attempt": attempt + 2, "status": "backend_error", "error": str(exc), "context": revision_context})
                 break
-            candidate = response.get("planner_decision", response.get("production_plan", response))
+            candidate = _apply_planner_revision(candidate, response)
         if last_plan is not None:
             return last_plan
         fallback = self._diagnostic_rejected_plan(rhyme, self.last_error or "planner did not produce a convertible plan")

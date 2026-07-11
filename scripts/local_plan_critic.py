@@ -19,10 +19,11 @@ def build_user_prompt(payload: dict[str, Any]) -> str:
         f"{json.dumps(contract, indent=2)}\n\n"
         "Deterministic validation report (binding; do not duplicate its issues):\n"
         f"{json.dumps(context.get('deterministic_report', {}), indent=2)}\n\n"
-        "Production plan to review:\n"
-        f"{json.dumps(context.get('production_plan', {}), indent=2)}\n\n"
+        "Planner-owned review plan to review:\n"
+        f"{json.dumps(context.get('review_plan', {}), indent=2)}\n\n"
         "Return one JSON object only. Use passed=false if you find any additional semantic issue. "
-        "Each issue must identify code, scene_num, message, field when known, evidence, and suggested_change."
+        "Each issue must identify code, scene_num, message, an editable review_plan field, suggested_change, and "
+        "evidence as an object with observed, expected, and source strings. Do not review fields absent from review_plan."
     )
 
 
