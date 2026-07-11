@@ -397,7 +397,10 @@ class AgenticArchitectureTests(unittest.TestCase):
 
     def test_compiled_prompt_uses_natural_character_text_and_authoritative_camera(self):
         decision = self._structured_decision(["Line one"], character_label="rain_child")
-        decision["scenes"][0]["subjects"] = "the child beside a rainy window"
+        decision["scenes"][0]["subjects"] = [
+            {"label": "rain_child", "selection_rationale": "fits the scene"},
+            "beside a rainy window",
+        ]
         decision["scenes"][0]["camera"] = "Camera holds a steady eye-level medium shot"
         plan = PromptPlannerAgent(MockAgentBackend(responses={"planner": decision}), max_plan_revisions=0).plan(
             NurseryRhymeInput(topic_or_name="camera test")

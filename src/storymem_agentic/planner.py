@@ -761,6 +761,18 @@ def _critic_prompt() -> str:
 def _raw_scene_field(raw: dict[str, Any], *names: str) -> str:
     for name in names:
         value = raw.get(name)
+        if isinstance(value, list):
+            parts = []
+            for item in value:
+                if isinstance(item, dict):
+                    label = item.get("description") or item.get("label") or item.get("name") or item.get("id")
+                    if label:
+                        parts.append(str(label))
+                elif str(item).strip():
+                    parts.append(str(item))
+            value = ", ".join(parts)
+        elif isinstance(value, dict):
+            value = value.get("description") or value.get("label") or value.get("name") or value.get("id") or ""
         if value is not None and str(value).strip():
             return _clean_sentence(str(value))
     return ""

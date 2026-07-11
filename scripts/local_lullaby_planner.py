@@ -49,13 +49,23 @@ def build_user_prompt(payload: dict[str, Any]) -> str:
                 "gently lowers, floating gently, caught safely, lands safely, or settles safely.\n"
                 "- Remove all remaining hazardous wording from setting, subjects, action, lyric_interpretation, "
                 "camera, style, and safety_adaptation; do not leave unsafe wording and merely add a negation later.\n"
+                "- Example: replace a falling cradle with a securely supported cradle floating gently onto a soft cloud.\n"
+            )
+        diversity_instruction = ""
+        if "repeated_scene_staging" in issue_codes:
+            diversity_instruction = (
+                "\nCRITICAL SCENE-DIVERSITY REVISION REQUIRED:\n"
+                "- Rewrite every repeated_scene_staging scene identified by scene_num.\n"
+                "- Give it a materially different setting or foreground/background staging, a different visible action, "
+                "and a different camera composition from matches_scene_num.\n"
+                "- Preserve character identity and the supplied lyric; do not return the previous scene unchanged.\n"
             )
         revision_block = (
             "\nThis is a revision request. Fix every validation issue below by returning a complete replacement "
             "planner decision JSON. Preserve supplied lyrics exactly and edit the structured scene descriptions, "
             "camera fields, characters, and continuity fields before prompt compilation.\n"
             f"Validation issues JSON:\n{json.dumps(validation_issues, indent=2)}\n"
-            f"{unsafe_instruction}\n"
+            f"{unsafe_instruction}{diversity_instruction}\n"
         )
         if previous_decision:
             revision_block += f"Previous planner decision JSON:\n{json.dumps(previous_decision, indent=2)}\n"
@@ -65,7 +75,6 @@ def build_user_prompt(payload: dict[str, Any]) -> str:
         f"{prompt}\n\n"
         "User input JSON. Treat null values as not supplied by the user:\n"
         f"{json.dumps(context.get('input', {}), indent=2)}\n\n"
-        f"{revision_block}"
         "Return exactly one JSON object with this shape and concrete values, not a schema:\n"
         "{\n"
         '  "lyrics": ["line 1", "line 2"],\n'
@@ -125,7 +134,10 @@ def build_user_prompt(payload: dict[str, Any]) -> str:
         "If validation reports unsafe_visual_action, use the evidence excerpts to rewrite the affected structured "
         "fields into visibly safe supported motion, and remove the hazardous wording instead of only negating it. "
         "Do not include dialogue or background music in visual scenes; audio is generated separately. "
-        "Return only valid JSON. Do not return a JSON schema. Do not wrap it in markdown."
+        "Return only valid JSON. Do not return a JSON schema. Do not wrap it in markdown.\n"
+        f"{revision_block}"
+        "If this is a revision request, the final validation instructions above override the previous decision. "
+        "Do not copy an affected scene unchanged. Return the complete corrected JSON object now."
     )
 
 
