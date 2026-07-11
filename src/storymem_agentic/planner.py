@@ -459,14 +459,18 @@ def _storyboard_prompt(
     camera_text = _clean_sentence(camera) or "Camera unspecified by planner"
     if camera_text and not camera_text.lower().startswith("camera"):
         camera_text = f"Camera {camera_text}"
-    aesthetic = _shot_pattern(index)
     style = visual_style
     if len(style) > 90:
         style = style[:90].rsplit(" ", 1)[0].rstrip(" ,;")
+    # The planner's camera field is authoritative. Only the offline diagnostic
+    # scaffold needs a synthetic staging cue to keep its placeholder clips distinct.
+    staging = ""
+    if "non-agentic dry-run scaffold only" in description.lower():
+        staging = f"; {_shot_pattern(index)}"
     return (
         f"Scene {index} of {clip_count}, [{start:.1f}-{end:.1f}s], toddler-safe lullaby animation: "
         f"{scene_text} {camera_text}. "
-        f"{style}; {aesthetic}; soft bedtime mood, rounded shapes, gentle motion. "
+        f"{style}{staging}; soft bedtime mood, rounded shapes, gentle motion. "
         "Use StoryMem keyframe memory for character/style consistency; this prompt controls the new scene layout. "
         f"No dialogue or background music, {text_guard}, no picture-in-picture, no inset frame, no scary elements."
     )
@@ -716,6 +720,22 @@ def validate_plan_semantics(plan: ProductionPlan, *, require_reviewer_approval: 
                     "evidence": safety_hits,
                 }
             )
+    for current, previous in zip(plan.scenes[1:], plan.scenes):
+        unchanged = [
+            field_name
+            for field_name in ("setting", "action", "camera")
+            if _clean_sentence(getattr(current, field_name, "")).lower()
+            == _clean_sentence(getattr(previous, field_name, "")).lower()
+        ]
+        if len(unchanged) == 3:
+            issues.append(
+                {
+                    "code": "repeated_scene_staging",
+                    "scene_num": current.scene_num,
+                    "message": "consecutive scenes must materially change setting, action, or camera composition",
+                    "evidence": {"matches_scene_num": previous.scene_num, "unchanged_fields": unchanged},
+                }
+            )
     return {
         "passed": not issues,
         "issue_count": len(issues),
@@ -730,7 +750,11 @@ def _critic_prompt() -> str:
         "generation. Return strict JSON with passed, issues, optional scores, and revision_notes. Flag lyric-scene "
         "mismatch, repeated muddy scenes, unsafe literal nursery-rhyme actions, world drift, missing character-bank "
         "consistency, vague visual descriptions, and prompts that would create text, dialogue, inset frames, or "
-        "background music. Be concrete and reference scene numbers."
+        "background music. Deterministic validation issues are mandatory failures: copy every one into issues, "
+        "set passed=false, and explain how the planner must revise the affected structured fields. Unsafe lyric "
+        "events must be visually transformed, for example a falling cradle becomes a securely supported cradle "
+        "that floats gently onto a soft cloud; merely negating hazardous words is not sufficient. Be concrete and "
+        "reference scene numbers."
     )
 
 
@@ -802,13 +826,17 @@ def _compile_scene_description(
         for item in selected_characters
         if isinstance(item, dict) and str(item.get("description", "")).strip()
     ]
-    for description in character_descriptions:
-        if description.lower() not in fields["subjects"].lower():
-            fields["subjects"] = (
-                f"{fields['subjects']}; selected character reference: {description}"
-                if fields["subjects"]
-                else description
-            )
+    missing_descriptions = [
+        description for description in character_descriptions
+        if description.lower() not in fields["subjects"].lower()
+    ]
+    if missing_descriptions:
+        references = "; ".join(missing_descriptions)
+        fields["subjects"] = (
+            f"{fields['subjects']}, featuring {references}"
+            if fields["subjects"]
+            else references
+        )
     description = _strip_leading_scene_label(str(raw.get("description") or ""))
     if all(fields[name] for name in ["setting", "subjects", "action", "camera", "style", "safety_adaptation"]):
         description = (
@@ -873,8 +901,16 @@ class PlanCriticAgent:
     def review(self, plan: ProductionPlan, deterministic_report: dict[str, Any]) -> dict[str, Any]:
         self.last_error = None
         self.last_response = None
+        deterministic_issues = deterministic_report.get("issues", [])
+        if not isinstance(deterministic_issues, list):
+            deterministic_issues = []
         if not self.backend:
-            return {"passed": True, "issues": [], "scores": {}, "revision_notes": []}
+            return {
+                "passed": not deterministic_issues,
+                "issues": deterministic_issues,
+                "scores": {},
+                "revision_notes": ["Resolve every deterministic validation issue before approval."] if deterministic_issues else [],
+            }
         self.last_prompt = _critic_prompt()
         self.last_schema = PLAN_CRITIC_SCHEMA
         self.last_context = {
@@ -896,8 +932,16 @@ class PlanCriticAgent:
         issues = response.get("issues", [])
         if not isinstance(issues, list):
             issues = [{"code": "critic_invalid_issues", "message": "critic issues must be a list", "scene_num": None}]
+        known = {
+            (str(issue.get("code")), issue.get("scene_num"))
+            for issue in issues
+            if isinstance(issue, dict)
+        }
+        for issue in deterministic_issues:
+            if isinstance(issue, dict) and (str(issue.get("code")), issue.get("scene_num")) not in known:
+                issues.append(issue)
         return {
-            "passed": bool(response.get("passed", not issues)),
+            "passed": bool(response.get("passed", not issues)) and not issues,
             "issues": issues,
             "scores": response.get("scores", {}) if isinstance(response.get("scores", {}), dict) else {},
             "revision_notes": response.get("revision_notes", []) if isinstance(response.get("revision_notes", []), list) else [],
@@ -1085,7 +1129,13 @@ class PromptPlannerAgent:
             deterministic_report = validate_plan_semantics(plan, require_reviewer_approval=False)
             critic_report = self.critic.review(plan, deterministic_report)
             self.agent_steps.append({"kind": "plan_review", "attempt": attempt + 1, "status": "passed" if critic_report.get("passed") else "rejected", "review": critic_report})
-            merged_issues = [*deterministic_report.get("issues", []), *critic_report.get("issues", [])]
+            merged_issues = []
+            seen_issues: set[tuple[str, Any]] = set()
+            for issue in [*deterministic_report.get("issues", []), *critic_report.get("issues", [])]:
+                key = (str(issue.get("code")), issue.get("scene_num")) if isinstance(issue, dict) else (str(issue), None)
+                if key not in seen_issues:
+                    seen_issues.add(key)
+                    merged_issues.append(issue)
             self.last_critic_report = critic_report
             if not merged_issues:
                 for scene in plan.scenes:
@@ -1128,7 +1178,9 @@ class PromptPlannerAgent:
                     "For unsafe_visual_action, use issue evidence excerpts to rewrite scene_goal, lyric_interpretation, "
                     "action, setting, subjects, camera, and safety_adaptation so unsupported descent, breakage, "
                     "dropping, crashing, impact, or other hazardous motion is replaced by visibly safe supported motion. "
-                    "Remove hazardous wording from the scene instead of only adding a negation."
+                    "For example, turn a falling cradle into a securely supported cradle floating gently onto a soft cloud. "
+                    "Remove hazardous wording from the scene instead of only adding a negation. For repeated_scene_staging, "
+                    "materially change setting, action, and composition while preserving character continuity."
                 ),
             }
             try:

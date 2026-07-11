@@ -10,7 +10,7 @@ from storymem_agentic.alignment import analyze_whisperx_alignment
 from storymem_agentic.agents import MockAgentBackend
 from storymem_agentic.feedback import apply_revision_plan, build_revision_plan
 from storymem_agentic.media_evaluator import evaluate_iteration
-from storymem_agentic.planner import PromptPlannerAgent, build_production_plan, validate_plan_semantics
+from storymem_agentic.planner import PlanCriticAgent, PromptPlannerAgent, build_production_plan, validate_plan_semantics
 from storymem_agentic.orchestrator import default_storymem_dir, run_workflow
 from storymem_agentic.review_agents import _normalize_model_report
 from storymem_agentic.schemas import EvaluationReport, NurseryRhymeInput, ReviewerReport, RevisionPlan
@@ -369,6 +369,44 @@ class AgenticArchitectureTests(unittest.TestCase):
         self.assertTrue(validate_plan_semantics(plan)["passed"])
         self.assertIn("supported cushion path", plan.scenes[0].description)
         self.assertNotIn("falls", plan.scenes[0].description.lower())
+
+    def test_critic_cannot_override_deterministic_safety_failure(self):
+        decision = self._structured_decision(["A dangerous line"], character_label="baby")
+        decision["scenes"][0]["action"] = "the baby falls from a high branch"
+        plan = PromptPlannerAgent(MockAgentBackend(responses={"planner": decision}), max_plan_revisions=0).plan(
+            NurseryRhymeInput(topic_or_name="safety test")
+        )
+        deterministic = validate_plan_semantics(plan, require_reviewer_approval=False)
+        critic = PlanCriticAgent(MockAgentBackend(responses={"plan_critic": {"passed": True, "issues": []}}))
+
+        report = critic.review(plan, deterministic)
+
+        self.assertFalse(report["passed"])
+        self.assertIn("unsafe_visual_action", {issue["code"] for issue in report["issues"]})
+
+    def test_consecutive_identical_staging_requires_revision(self):
+        decision = self._structured_decision(["Line one", "Line two"])
+        for field in ("setting", "action", "camera"):
+            decision["scenes"][1][field] = decision["scenes"][0][field]
+        planner = PromptPlannerAgent(MockAgentBackend(responses={"planner": decision}), max_plan_revisions=0)
+
+        planner.plan(NurseryRhymeInput(topic_or_name="repetition test"))
+
+        codes = {issue["code"] for issue in planner.last_validation_report["issues"]}
+        self.assertIn("repeated_scene_staging", codes)
+
+    def test_compiled_prompt_uses_natural_character_text_and_authoritative_camera(self):
+        decision = self._structured_decision(["Line one"], character_label="rain_child")
+        decision["scenes"][0]["subjects"] = "the child beside a rainy window"
+        decision["scenes"][0]["camera"] = "Camera holds a steady eye-level medium shot"
+        plan = PromptPlannerAgent(MockAgentBackend(responses={"planner": decision}), max_plan_revisions=0).plan(
+            NurseryRhymeInput(topic_or_name="camera test")
+        )
+
+        prompt = plan.scenes[0].video_prompt
+        self.assertIn("featuring same rounded rain_child", prompt)
+        self.assertNotIn("{'label':", prompt)
+        self.assertNotIn("wide establishing shot", prompt)
 
     def test_natural_falling_rain_is_not_unsafe_motion(self):
         plan = build_production_plan(
