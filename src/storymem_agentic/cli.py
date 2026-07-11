@@ -206,7 +206,7 @@ def build_parser() -> argparse.ArgumentParser:
         command.add_argument("--planner-backend", choices=["mock", "command"], default="mock")
         command.add_argument("--planner-command")
         command.add_argument("--plan-critic-command")
-        command.add_argument("--max-plan-revisions", type=int, default=2)
+        command.add_argument("--max-plan-revisions", type=int, default=4)
         command.add_argument("--plan-validation-policy", choices=["block", "warn"], default="block")
         command.add_argument("--review-backend", choices=["mock", "command"], default="mock")
         command.add_argument("--allow-mock-review", action="store_true")

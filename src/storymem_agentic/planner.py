@@ -1015,6 +1015,10 @@ def _critic_issue_is_actionable(issue: dict[str, Any], review_plan: dict[str, An
     }
     plan_fields = {"visual_bible", "selected_characters", "scenes"}
     field = str(issue.get("field") or "").split("[", 1)[0]
+    # Hygiene is already enforced deterministically. Small semantic critics tend
+    # to misuse this label for harmless wording preferences, so keep it advisory.
+    if issue.get("code") == "prompt_hygiene":
+        return False
     scene_num = issue.get("scene_num")
     if scene_num is None:
         if field not in plan_fields:
@@ -1284,7 +1288,7 @@ class PromptPlannerAgent:
         *,
         target_fps: int = 24,
         critic: PlanCriticAgent | None = None,
-        max_plan_revisions: int = 2,
+        max_plan_revisions: int = 4,
     ) -> None:
         self.backend = backend
         self.target_fps = target_fps

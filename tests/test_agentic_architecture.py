@@ -522,6 +522,33 @@ class AgenticArchitectureTests(unittest.TestCase):
         self.assertTrue(report["passed"])
         self.assertEqual(report["issues"], [])
 
+    def test_semantic_critic_hygiene_opinion_is_advisory(self):
+        decision = self._structured_decision(["A child greets a lamb"])
+        plan = PromptPlannerAgent(MockAgentBackend(responses={"planner": decision}), max_plan_revisions=0).plan(
+            NurseryRhymeInput(topic_or_name="original lamb greeting")
+        )
+        critic = PlanCriticAgent(MockAgentBackend(responses={"plan_critic": {
+            "passed": False,
+            "issues": [{
+                "code": "prompt_hygiene",
+                "scene_num": 1,
+                "message": "the broad goal could be more detailed",
+                "field": "scene_goal",
+                "evidence": {
+                    "observed": "communicate lyric 1",
+                    "expected": "describe every gesture",
+                    "source": "review_contract.prompt_hygiene",
+                },
+                "suggested_change": "expand the goal",
+            }],
+        }}))
+
+        report = critic.review(plan, validate_plan_semantics(plan, require_reviewer_approval=False))
+
+        self.assertTrue(report["passed"])
+        self.assertEqual(report["issues"], [])
+        self.assertEqual(report["warnings"][0]["code"], "prompt_hygiene")
+
     def test_consecutive_identical_staging_requires_revision(self):
         decision = self._structured_decision(["Line one", "Line two"])
         for field in ("setting", "action", "camera"):

@@ -508,7 +508,7 @@ def run_workflow(
     planner_backend: str = "mock",
     planner_command: str | None = None,
     plan_critic_command: str | None = None,
-    max_plan_revisions: int = 2,
+    max_plan_revisions: int = 4,
     plan_validation_policy: str = "block",
     review_backend: str = "mock",
     vlm_command: str | None = None,
