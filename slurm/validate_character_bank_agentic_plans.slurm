@@ -97,6 +97,7 @@ for index in "${!TOPICS[@]}"; do
   mkdir -p "${output}"
   printf "%s" "${LYRICS[$index]}" > "${lyrics_file}"
   planner_cmd="${VENV_DIR}/bin/python ${AGENTIC_DIR}/scripts/local_lullaby_planner.py --model ${PLANNER_MODEL} --debug-output ${output}/planner_raw_output.txt"
+  critic_cmd="${VENV_DIR}/bin/python ${AGENTIC_DIR}/scripts/local_plan_critic.py --model ${PLANNER_MODEL} --debug-output ${output}/plan_critic_raw_output.txt"
 
   python -m storymem_agentic.cli plan \
     --topic "${topic}" \
@@ -108,6 +109,7 @@ for index in "${!TOPICS[@]}"; do
     --character-bank "${CHARACTER_BANK}" \
     --planner-backend command \
     --planner-command "${planner_cmd}" \
+    --plan-critic-command "${critic_cmd}" \
     --review-backend mock \
     --audio-aligner none \
     --no-generate-audio

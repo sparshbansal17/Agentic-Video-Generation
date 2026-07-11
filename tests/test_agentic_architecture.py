@@ -400,6 +400,51 @@ class AgenticArchitectureTests(unittest.TestCase):
         self.assertFalse(report["passed"])
         self.assertIn("unsafe_visual_action", {issue["code"] for issue in report["issues"]})
 
+    def test_critic_rejection_without_issues_fails_closed(self):
+        decision = self._structured_decision(["A quiet copper kite"])
+        plan = PromptPlannerAgent(MockAgentBackend(responses={"planner": decision}), max_plan_revisions=0).plan(
+            NurseryRhymeInput(topic_or_name="original copper kite lullaby")
+        )
+        critic = PlanCriticAgent(
+            MockAgentBackend(responses={"plan_critic": {"passed": False, "issues": [], "scores": {}}})
+        )
+
+        report = critic.review(plan, validate_plan_semantics(plan, require_reviewer_approval=False))
+
+        self.assertFalse(report["passed"])
+        self.assertEqual(report["issues"][0]["code"], "critic_rejected_without_issues")
+
+    def test_critic_normalizes_actionable_generic_review(self):
+        decision = self._structured_decision(["A fox crosses a velvet hill"])
+        plan = PromptPlannerAgent(MockAgentBackend(responses={"planner": decision}), max_plan_revisions=0).plan(
+            NurseryRhymeInput(topic_or_name="original velvet hill lullaby")
+        )
+        critic = PlanCriticAgent(
+            MockAgentBackend(
+                responses={
+                    "plan_critic": {
+                        "passed": False,
+                        "issues": [{
+                            "code": "Camera Conflict",
+                            "scene_num": "1",
+                            "reason": "shot size contradicts the camera move",
+                            "field": "camera",
+                            "suggested_change": "use one eye-level tracking direction",
+                        }],
+                        "scores": {"prompt_generatability": 1.4, "lyric_alignment": "0.8", "bad": "unknown"},
+                        "revision_notes": ["  Resolve the camera field.  "],
+                    }
+                }
+            )
+        )
+
+        report = critic.review(plan, validate_plan_semantics(plan, require_reviewer_approval=False))
+
+        self.assertEqual(report["issues"][0]["code"], "camera_conflict")
+        self.assertEqual(report["issues"][0]["scene_num"], 1)
+        self.assertEqual(report["scores"], {"prompt_generatability": 1.0, "lyric_alignment": 0.8})
+        self.assertEqual(report["revision_notes"], ["Resolve the camera field"])
+
     def test_consecutive_identical_staging_requires_revision(self):
         decision = self._structured_decision(["Line one", "Line two"])
         for field in ("setting", "action", "camera"):

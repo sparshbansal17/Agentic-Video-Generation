@@ -48,6 +48,7 @@ export TMPDIR="${TMPDIR:-${AGENTIC_DIR}/.tmp}"
 mkdir -p "${AGENTIC_DIR}/logs" "${OUTPUT_PATH}" "${TMPDIR}"
 
 PLANNER_CMD="${VENV_DIR}/bin/python ${AGENTIC_DIR}/scripts/local_lullaby_planner.py --model ${PLANNER_MODEL} --debug-output ${OUTPUT_PATH}/planner_raw_output.txt"
+PLAN_CRITIC_CMD="${VENV_DIR}/bin/python ${AGENTIC_DIR}/scripts/local_plan_critic.py --model ${PLANNER_MODEL} --debug-output ${OUTPUT_PATH}/plan_critic_raw_output.txt"
 VLM_CMD="${VENV_DIR}/bin/python ${AGENTIC_DIR}/scripts/local_lullaby_reviewer.py --model ${REVIEWER_MODEL} --debug-output ${OUTPUT_PATH}/vlm_review_raw_output.txt"
 ACE_STEP_CMD="${STORYMEM_DIR}/audio_tools/.venv/acestep/bin/python ${AGENTIC_DIR}/run_acestep_story_audio.py --lyrics-file \${lyrics_file} --prompt-file \${prompt_file} --duration \${duration} --seed \${seed} --output \${output_file} --checkpoint-path ${STORYMEM_DIR}/audio_tools/ace_step_checkpoints"
 WHISPERX_BIN="${WHISPERX_BIN:-${AGENTIC_DIR}/.venv-whisperx/bin/whisperx}"
@@ -83,6 +84,7 @@ python -m storymem_agentic.cli iterate \
   --ffmpeg-bin "${FFMPEG_BIN}" \
   --planner-backend command \
   --planner-command "${PLANNER_CMD}" \
+  --plan-critic-command "${PLAN_CRITIC_CMD}" \
   --review-backend command \
   --vlm-command "${VLM_CMD}" \
   --audio-aligner whisperx \

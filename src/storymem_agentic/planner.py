@@ -124,7 +124,21 @@ PLAN_CRITIC_SCHEMA: dict[str, Any] = {
     "required": ["passed", "issues"],
     "properties": {
         "passed": {"type": "boolean"},
-        "issues": {"type": "array", "items": {"type": "object"}},
+        "issues": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "required": ["code", "message", "scene_num"],
+                "properties": {
+                    "code": {"type": "string"},
+                    "message": {"type": "string"},
+                    "scene_num": {"type": ["integer", "null"]},
+                    "field": {"type": ["string", "null"]},
+                    "evidence": {},
+                    "suggested_change": {"type": "string"},
+                },
+            },
+        },
         "scores": {"type": "object"},
         "revision_notes": {"type": "array", "items": {"type": "string"}},
     },
@@ -749,15 +763,19 @@ def validate_plan_semantics(plan: ProductionPlan, *, require_reviewer_approval: 
 
 def _critic_prompt() -> str:
     return (
-        "You are PlanCriticAgent for a StoryMem video planner. Review the structured production plan before GPU "
-        "generation. Return strict JSON with passed, issues, optional scores, and revision_notes. Flag lyric-scene "
-        "mismatch, repeated muddy scenes, unsafe literal nursery-rhyme actions, world drift, missing character-bank "
-        "consistency, vague visual descriptions, and prompts that would create text, dialogue, inset frames, or "
-        "background music. Deterministic validation issues are mandatory failures: copy every one into issues, "
-        "set passed=false, and explain how the planner must revise the affected structured fields. Unsafe lyric "
-        "events must be semantically transformed into visibly supported, low-risk motion while preserving the scene's "
-        "meaning; merely negating hazardous words is not sufficient. Be concrete and "
-        "reference scene numbers."
+        "You are PlanCriticAgent, the semantic reviewer for a StoryMem video plan before costly GPU generation. "
+        "Review the supplied plan independently of its topic; never substitute canned nursery-rhyme scenes. Return "
+        "strict JSON with passed, issues, scores, and revision_notes. Score 0.0 to 1.0 for lyric_alignment, "
+        "scene_progression, visual_continuity, child_safety, prompt_generatability, and prompt_hygiene. Reject when "
+        "any scene misrepresents its lyric, repeats prior staging without narrative purpose, drifts outside the visual "
+        "bible, changes a recurring character's anchors, depicts unsafe literal action, is vague or internally "
+        "contradictory, overloads a five-second clip, conflicts on camera direction, or requests generated text, "
+        "dialogue, inset frames, or background music. For each semantic issue return a stable snake_case code, exact "
+        "scene_num (or null for plan-wide issues), affected field when known, concise evidence, and a suggested_change "
+        "that preserves the user's input. Deterministic issues in context are already enforced and will be merged by "
+        "the orchestrator; do not omit or contradict them, but do not duplicate them. Set passed=false whenever you "
+        "return an issue. A safe adaptation must change the depicted event itself rather than merely negate hazardous "
+        "words. Approval means the plan is specific, coherent, distinct, safe, and directly generatable."
     )
 
 
@@ -901,6 +919,44 @@ def _unsafe_safety_hits(text: str, *, field: str) -> list[dict[str, str]]:
     return hits
 
 
+def _normalize_critic_issue(issue: Any, index: int) -> dict[str, Any]:
+    if not isinstance(issue, dict):
+        return {
+            "code": "critic_invalid_issue",
+            "scene_num": None,
+            "message": f"critic issue {index} must be an object",
+            "evidence": {"received_type": type(issue).__name__},
+        }
+    code = re.sub(r"[^a-z0-9]+", "_", str(issue.get("code") or "semantic_review_issue").lower()).strip("_")
+    message = _clean_sentence(str(issue.get("message") or issue.get("reason") or "semantic review rejected the plan"))
+    raw_scene_num = issue.get("scene_num")
+    try:
+        scene_num = int(raw_scene_num) if raw_scene_num is not None else None
+    except (TypeError, ValueError):
+        scene_num = None
+    normalized = {
+        "code": code or "semantic_review_issue",
+        "scene_num": scene_num,
+        "message": message,
+    }
+    for key in ("field", "evidence", "suggested_change"):
+        if issue.get(key) not in (None, "", [], {}):
+            normalized[key] = issue[key]
+    return normalized
+
+
+def _normalize_critic_scores(value: Any) -> dict[str, float]:
+    if not isinstance(value, dict):
+        return {}
+    scores: dict[str, float] = {}
+    for key, raw_score in value.items():
+        try:
+            scores[str(key)] = max(0.0, min(1.0, float(raw_score)))
+        except (TypeError, ValueError):
+            continue
+    return scores
+
+
 class PlanCriticAgent:
     def __init__(self, backend: AgentBackend | None = None) -> None:
         self.backend = backend
@@ -929,6 +985,18 @@ class PlanCriticAgent:
             "response_key": "plan_critic",
             "production_plan": plan.to_dict(),
             "deterministic_report": deterministic_report,
+            "review_contract": {
+                "independent_dimensions": [
+                    "lyric_alignment",
+                    "scene_progression",
+                    "visual_continuity",
+                    "child_safety",
+                    "prompt_generatability",
+                    "prompt_hygiene",
+                ],
+                "deterministic_issues_are_binding": True,
+                "issue_fields": ["code", "scene_num", "message", "field", "evidence", "suggested_change"],
+            },
         }
         try:
             response = self.backend.generate_json(self.last_prompt, self.last_schema, self.last_context)
@@ -941,9 +1009,19 @@ class PlanCriticAgent:
                 "revision_notes": [],
             }
         self.last_response = response
-        issues = response.get("issues", [])
-        if not isinstance(issues, list):
-            issues = [{"code": "critic_invalid_issues", "message": "critic issues must be a list", "scene_num": None}]
+        raw_issues = response.get("issues", [])
+        if not isinstance(raw_issues, list):
+            raw_issues = [{"code": "critic_invalid_issues", "message": "critic issues must be a list", "scene_num": None}]
+        issues = [_normalize_critic_issue(issue, index) for index, issue in enumerate(raw_issues, start=1)]
+        if response.get("passed") is False and not issues:
+            issues.append(
+                {
+                    "code": "critic_rejected_without_issues",
+                    "scene_num": None,
+                    "message": "critic rejected the plan without actionable issue details",
+                    "suggested_change": "review the plan again and identify exact fields and scenes requiring revision",
+                }
+            )
         known = {
             (str(issue.get("code")), issue.get("scene_num"))
             for issue in issues
@@ -955,8 +1033,10 @@ class PlanCriticAgent:
         return {
             "passed": bool(response.get("passed", not issues)) and not issues,
             "issues": issues,
-            "scores": response.get("scores", {}) if isinstance(response.get("scores", {}), dict) else {},
-            "revision_notes": response.get("revision_notes", []) if isinstance(response.get("revision_notes", []), list) else [],
+            "scores": _normalize_critic_scores(response.get("scores", {})),
+            "revision_notes": [
+                _clean_sentence(str(note)) for note in response.get("revision_notes", []) if str(note).strip()
+            ] if isinstance(response.get("revision_notes", []), list) else [],
         }
 
 

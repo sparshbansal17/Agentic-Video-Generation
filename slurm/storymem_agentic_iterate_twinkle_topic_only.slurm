@@ -55,6 +55,7 @@ MAX_ITERATIONS="${MAX_ITERATIONS:-2}"
 CLIP_COUNT="${CLIP_COUNT:-4}"
 PLANNER_MODEL="${PLANNER_MODEL:-Qwen/Qwen2-VL-7B-Instruct}"
 PLANNER_CMD="${PLANNER_CMD:-${VENV_DIR}/bin/python ${AGENTIC_DIR}/scripts/local_lullaby_planner.py --model ${PLANNER_MODEL} --debug-output ${OUTPUT_PATH}/planner_raw_output.txt}"
+PLAN_CRITIC_CMD="${PLAN_CRITIC_CMD:-${VENV_DIR}/bin/python ${AGENTIC_DIR}/scripts/local_plan_critic.py --model ${PLANNER_MODEL} --debug-output ${OUTPUT_PATH}/plan_critic_raw_output.txt}"
 REVIEWER_MODEL="${REVIEWER_MODEL:-Qwen/Qwen2-VL-7B-Instruct}"
 REVIEW_BACKEND="${REVIEW_BACKEND:-command}"
 if [ -z "${VLM_CMD:-}" ]; then
@@ -153,6 +154,7 @@ python -m storymem_agentic.cli iterate \
   "${STORYMEM_EXTRA_ARGS[@]}" \
   --planner-backend command \
   --planner-command "${PLANNER_CMD}" \
+  --plan-critic-command "${PLAN_CRITIC_CMD}" \
   --review-backend "${REVIEW_BACKEND}" \
   --vlm-command "${VLM_CMD}" \
   --audio-aligner whisperx \
