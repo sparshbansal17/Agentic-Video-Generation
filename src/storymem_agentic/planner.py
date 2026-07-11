@@ -173,6 +173,7 @@ def _character_bank(visual_style: str, character_db_path: str | None = None) -> 
                 profiles.append(profile)
         if profiles:
             return profiles
+        raise ValueError(f"character bank contains no valid character profiles: {character_db_path}")
 
     return [
         CharacterProfile(
@@ -647,7 +648,9 @@ def _profiles_from_decision(decision: dict[str, Any], visual_style: str, charact
             profile = _profile_from_item(item, index)
             if profile:
                 profiles.append(profile)
-    return profiles or _character_bank(visual_style, None)
+    if not profiles:
+        raise ValueError("planner decision requires at least one character with a label and description")
+    return profiles
 
 
 def build_visual_bible(plan: ProductionPlan) -> dict[str, Any]:
@@ -752,8 +755,8 @@ def _critic_prompt() -> str:
         "consistency, vague visual descriptions, and prompts that would create text, dialogue, inset frames, or "
         "background music. Deterministic validation issues are mandatory failures: copy every one into issues, "
         "set passed=false, and explain how the planner must revise the affected structured fields. Unsafe lyric "
-        "events must be visually transformed, for example a falling cradle becomes a securely supported cradle "
-        "that floats gently onto a soft cloud; merely negating hazardous words is not sufficient. Be concrete and "
+        "events must be semantically transformed into visibly supported, low-risk motion while preserving the scene's "
+        "meaning; merely negating hazardous words is not sufficient. Be concrete and "
         "reference scene numbers."
     )
 
@@ -784,7 +787,6 @@ def _character_lookup_key(label: str) -> str:
 
 def _selected_character_metadata(
     raw: dict[str, Any],
-    decision: dict[str, Any],
     character_bank: list[CharacterProfile],
 ) -> list[dict[str, Any]]:
     bank_by_label = {
@@ -794,8 +796,6 @@ def _selected_character_metadata(
     raw_selection = raw.get("selected_characters")
     if raw_selection is None:
         raw_selection = raw.get("characters")
-    if raw_selection is None:
-        raw_selection = decision.get("selected_characters")
     if not isinstance(raw_selection, list):
         return []
     selected: list[dict[str, Any]] = []
@@ -986,7 +986,7 @@ def production_plan_from_planner_decision(
     scenes = []
     for index, segment in enumerate(segments, start=1):
         raw = raw_scenes[index - 1] if index - 1 < len(raw_scenes) and isinstance(raw_scenes[index - 1], dict) else {}
-        selected_characters = _selected_character_metadata(raw, decision, bank)
+        selected_characters = _selected_character_metadata(raw, bank)
         description, structured = _compile_scene_description(raw, rhyme.visual_style, selected_characters)
         camera = structured["camera"]
         expected_mood = str(raw.get("expected_mood") or "calm child-safe bedtime wonder")
@@ -1139,6 +1139,19 @@ class PromptPlannerAgent:
             last_plan = plan
             self.agent_steps.append({"kind": "planner_draft" if attempt == 0 else "planner_revision", "attempt": attempt + 1, "status": "converted", "candidate": candidate, "production_plan": plan.to_dict()})
             deterministic_report = validate_plan_semantics(plan, require_reviewer_approval=False)
+            if attempt > 0 and self.plan_attempts:
+                previous_candidate = self.plan_attempts[-1].get("candidate")
+                if candidate == previous_candidate:
+                    deterministic_report["issues"].append(
+                        {
+                            "code": "revision_made_no_changes",
+                            "scene_num": None,
+                            "message": "the planner returned the previous invalid decision unchanged",
+                            "evidence": {"previous_attempt": attempt},
+                        }
+                    )
+                    deterministic_report["passed"] = False
+                    deterministic_report["issue_count"] = len(deterministic_report["issues"])
             critic_report = self.critic.review(plan, deterministic_report)
             self.agent_steps.append({"kind": "plan_review", "attempt": attempt + 1, "status": "passed" if critic_report.get("passed") else "rejected", "review": critic_report})
             merged_issues = []
@@ -1190,9 +1203,11 @@ class PromptPlannerAgent:
                     "For unsafe_visual_action, use issue evidence excerpts to rewrite scene_goal, lyric_interpretation, "
                     "action, setting, subjects, camera, and safety_adaptation so unsupported descent, breakage, "
                     "dropping, crashing, impact, or other hazardous motion is replaced by visibly safe supported motion. "
-                    "For example, turn a falling cradle into a securely supported cradle floating gently onto a soft cloud. "
                     "Remove hazardous wording from the scene instead of only adding a negation. For repeated_scene_staging, "
-                    "materially change setting, action, and composition while preserving character continuity."
+                    "materially change setting, action, and composition while preserving character continuity. For every "
+                    "other issue code, use its message, scene_num, field, and evidence as binding acceptance criteria. "
+                    "If revision_made_no_changes is present, substantially rewrite every still-invalid field rather than "
+                    "returning the prior decision."
                 ),
             }
             try:

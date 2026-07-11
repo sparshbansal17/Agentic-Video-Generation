@@ -351,6 +351,22 @@ class AgenticArchitectureTests(unittest.TestCase):
         self.assertTrue(validate_plan_semantics(plan)["passed"])
         self.assertEqual([step["kind"] for step in planner.agent_steps], ["planner_draft", "plan_review", "planner_revision", "plan_review"])
 
+    def test_unchanged_invalid_revision_is_reported_generically(self):
+        invalid = self._structured_decision(["Copper kite", "Velvet hill"], character_label="fox")
+        invalid["scenes"][1]["setting"] = invalid["scenes"][0]["setting"]
+        invalid["scenes"][1]["action"] = invalid["scenes"][0]["action"]
+        invalid["scenes"][1]["camera"] = invalid["scenes"][0]["camera"]
+        backend = MockAgentBackend(responses={"planner": invalid, "planner_revision_1": invalid})
+
+        planner = PromptPlannerAgent(backend, max_plan_revisions=1)
+        planner.plan(NurseryRhymeInput(topic_or_name="an original copper kite journey"))
+
+        second_codes = {
+            issue["code"] for issue in planner.plan_attempts[1]["deterministic_report"]["issues"]
+        }
+        self.assertIn("revision_made_no_changes", second_codes)
+        self.assertIn("repeated_scene_staging", second_codes)
+
     def test_unsafe_motion_feedback_drives_general_agentic_revision(self):
         initial = self._structured_decision(["High branch line", "Safe landing line"], character_label="guide")
         initial["scenes"][0]["action"] = "the small guide falls from a high platform"

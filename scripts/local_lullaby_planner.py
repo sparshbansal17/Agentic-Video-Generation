@@ -49,7 +49,6 @@ def build_user_prompt(payload: dict[str, Any]) -> str:
                 "gently lowers, floating gently, caught safely, lands safely, or settles safely.\n"
                 "- Remove all remaining hazardous wording from setting, subjects, action, lyric_interpretation, "
                 "camera, style, and safety_adaptation; do not leave unsafe wording and merely add a negation later.\n"
-                "- Example: replace a falling cradle with a securely supported cradle floating gently onto a soft cloud.\n"
             )
         diversity_instruction = ""
         if "repeated_scene_staging" in issue_codes:
@@ -66,6 +65,11 @@ def build_user_prompt(payload: dict[str, Any]) -> str:
             "camera fields, characters, and continuity fields before prompt compilation.\n"
             f"Validation issues JSON:\n{json.dumps(validation_issues, indent=2)}\n"
             f"{unsafe_instruction}{diversity_instruction}\n"
+            "GENERAL CORRECTION CONTRACT:\n"
+            "- Treat every issue object, regardless of code, as a binding acceptance criterion.\n"
+            "- Use scene_num to edit the affected scene and use field/evidence/message to determine the required change.\n"
+            "- Compare the replacement against previous_decision before answering; every cited defect must have a visible JSON-field change.\n"
+            "- Do not insert canned topic imagery or substitute a generic bedtime scene unrelated to the supplied input.\n"
         )
         if previous_decision:
             revision_block += f"Previous planner decision JSON:\n{json.dumps(previous_decision, indent=2)}\n"
