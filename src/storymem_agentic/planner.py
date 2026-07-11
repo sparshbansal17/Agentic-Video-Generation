@@ -778,7 +778,8 @@ def _critic_prompt() -> str:
         "any scene misrepresents its lyric, repeats prior staging without narrative purpose, drifts outside the visual "
         "bible, changes a recurring character's anchors, depicts unsafe literal action, is vague or internally "
         "contradictory, overloads a five-second clip, conflicts on camera direction, or requests generated text, "
-        "dialogue, inset frames, or background music. For each semantic issue return a stable snake_case code, exact "
+        "dialogue, inset frames, or background music inside a visual scene. Audio planning is reviewed separately; "
+        "do not review or reinterpret music_prompt. For each semantic issue return a stable snake_case code, exact "
         "scene_num (or null for plan-wide issues), affected field when known, concise evidence, and a suggested_change "
         "that preserves the user's input. Evidence must be an object with observed (an exact plan fact), expected "
         "(the conflicting requirement), and source (the field, lyric, visual-bible rule, or comparison scene). Only "
@@ -1004,29 +1005,40 @@ def _critic_review_plan(plan: ProductionPlan) -> dict[str, Any]:
             {field: getattr(scene, field) for field in scene_fields}
             for scene in plan.scenes
         ],
-        "music_prompt": plan.music_prompt,
     }
 
 
-def _critic_issue_is_actionable(issue: dict[str, Any], scene_count: int) -> bool:
+def _critic_issue_is_actionable(issue: dict[str, Any], review_plan: dict[str, Any]) -> bool:
     editable_scene_fields = {
         "scene_goal", "lyric_interpretation", "setting", "subjects", "action", "camera", "style",
         "safety_adaptation", "selected_characters", "expected_mood", "boundary_behavior", "cut",
     }
-    plan_fields = {"visual_bible", "selected_characters", "music_prompt", "scenes"}
+    plan_fields = {"visual_bible", "selected_characters", "scenes"}
     field = str(issue.get("field") or "").split("[", 1)[0]
     scene_num = issue.get("scene_num")
     if scene_num is None:
         if field not in plan_fields:
             return False
-    elif not isinstance(scene_num, int) or not 1 <= scene_num <= scene_count or field not in editable_scene_fields:
+    elif not isinstance(scene_num, int) or not 1 <= scene_num <= len(review_plan.get("scenes", [])) or field not in editable_scene_fields:
         return False
     evidence = issue.get("evidence")
     if not isinstance(evidence, dict):
         return False
     if not all(str(evidence.get(key) or "").strip() for key in ("observed", "expected", "source")):
         return False
-    return bool(str(issue.get("suggested_change") or "").strip())
+    observed = str(evidence["observed"]).strip().lower()
+    expected = str(evidence["expected"]).strip().lower()
+    if observed == expected:
+        return False
+    if scene_num is not None:
+        scene_value = review_plan["scenes"][scene_num - 1].get(field)
+        if observed not in json.dumps(scene_value, sort_keys=True).lower():
+            return False
+    source = str(evidence["source"]).strip().lower()
+    if source.startswith("visual_bible") and expected not in json.dumps(review_plan.get("visual_bible", {}), sort_keys=True).lower():
+        return False
+    suggested_change = issue.get("suggested_change")
+    return isinstance(suggested_change, str) and bool(suggested_change.strip())
 
 
 class PlanCriticAgent:
@@ -1053,9 +1065,10 @@ class PlanCriticAgent:
             }
         self.last_prompt = _critic_prompt()
         self.last_schema = PLAN_CRITIC_SCHEMA
+        review_plan = _critic_review_plan(plan)
         self.last_context = {
             "response_key": "plan_critic",
-            "review_plan": _critic_review_plan(plan),
+            "review_plan": review_plan,
             "deterministic_report": deterministic_report,
             "review_contract": {
                 "independent_dimensions": [
@@ -1089,7 +1102,7 @@ class PlanCriticAgent:
             )
             raw_issues = []
         normalized_issues = [_normalize_critic_issue(issue, index) for index, issue in enumerate(raw_issues, start=1)]
-        issues = [issue for issue in normalized_issues if _critic_issue_is_actionable(issue, len(plan.scenes))]
+        issues = [issue for issue in normalized_issues if _critic_issue_is_actionable(issue, review_plan)]
         warnings = [
             {**issue, "warning": "critic claim was not grounded in editable planner fields with comparative evidence"}
             for issue in normalized_issues
@@ -1243,6 +1256,12 @@ def _apply_planner_revision(previous: dict[str, Any], response: dict[str, Any]) 
         target = by_number.get(scene_num)
         if target is None:
             continue
+        field_to_change = revision.get("field_to_change")
+        if field_to_change in editable and "replacement_value" in revision:
+            replacement = revision["replacement_value"]
+            if replacement != target.get(field_to_change):
+                target[field_to_change] = replacement
+                changed = True
         for field in editable:
             if field in revision and revision[field] != target.get(field):
                 target[field] = revision[field]

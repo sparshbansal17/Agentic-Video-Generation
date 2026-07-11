@@ -357,12 +357,11 @@ class AgenticArchitectureTests(unittest.TestCase):
         initial["scenes"][1]["action"] = initial["scenes"][0]["action"]
         initial["scenes"][1]["camera"] = initial["scenes"][0]["camera"]
         patch = {
-            "scene_revisions": [{
-                "scene_num": 2,
-                "setting": "a velvet hilltop with copper grass in the foreground and distant clouds",
-                "action": "the same fox catches the kite ribbon gently as it arcs over the hill",
-                "camera": "Camera tracks uphill beside the fox and settles on the kite",
-            }],
+            "scene_revisions": [
+                {"scene_num": 2, "field_to_change": "setting", "replacement_value": "a velvet hilltop with copper grass in the foreground and distant clouds"},
+                {"scene_num": 2, "field_to_change": "action", "replacement_value": "the same fox catches the kite ribbon gently as it arcs over the hill"},
+                {"scene_num": 2, "field_to_change": "camera", "replacement_value": "Camera tracks uphill beside the fox and settles on the kite"},
+            ],
             "plan_updates": {},
         }
         backend = MockAgentBackend(responses={"planner": initial, "planner_revision_1": patch})
@@ -452,9 +451,9 @@ class AgenticArchitectureTests(unittest.TestCase):
                             "reason": "shot size contradicts the camera move",
                             "field": "camera",
                             "evidence": {
-                                "observed": "a static wide shot and a close tracking move are both requested",
+                                "observed": "Camera makes a slow planned move 1",
                                 "expected": "one coherent camera direction",
-                                "source": "scene 1 camera",
+                                "source": "review_contract.prompt_generatability",
                             },
                             "suggested_change": "use one eye-level tracking direction",
                         }],
@@ -496,6 +495,32 @@ class AgenticArchitectureTests(unittest.TestCase):
         self.assertTrue(report["passed"])
         self.assertEqual(report["issues"], [])
         self.assertEqual(report["warnings"][0]["code"], "visual_continuity")
+
+    def test_critic_rejects_identical_observed_and_expected_evidence(self):
+        decision = self._structured_decision(["A mouse circles a brass clock"])
+        plan = PromptPlannerAgent(MockAgentBackend(responses={"planner": decision}), max_plan_revisions=0).plan(
+            NurseryRhymeInput(topic_or_name="original brass clock lullaby")
+        )
+        critic = PlanCriticAgent(MockAgentBackend(responses={"plan_critic": {
+            "passed": False,
+            "issues": [{
+                "code": "visual_continuity",
+                "scene_num": 1,
+                "message": "character metadata conflicts",
+                "field": "selected_characters",
+                "evidence": {
+                    "observed": "guide",
+                    "expected": "guide",
+                    "source": "visual_bible",
+                },
+                "suggested_change": "keep guide unchanged",
+            }],
+        }}))
+
+        report = critic.review(plan, validate_plan_semantics(plan, require_reviewer_approval=False))
+
+        self.assertTrue(report["passed"])
+        self.assertEqual(report["issues"], [])
 
     def test_consecutive_identical_staging_requires_revision(self):
         decision = self._structured_decision(["Line one", "Line two"])
