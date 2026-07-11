@@ -43,8 +43,8 @@ def storymem_script_from_plan(plan: ProductionPlan) -> dict:
     plan.validate()
     return {
         "story_overview": (
-            f"A simple nursery-rhyme bedtime video for {plan.rhyme.target_audience}. "
-            "Each five-second shot follows the planner-authored visual beat, with calm child-safe motion."
+            f"A polished child-safe preschool animated sing-along for {plan.rhyme.target_audience}. "
+            "Each five-second StoryMem shot advances a clear, playful visual arc with readable action and expression."
         ),
         "scenes": [
             {

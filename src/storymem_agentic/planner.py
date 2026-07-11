@@ -611,17 +611,32 @@ def _planner_prompt() -> str:
         "StoryMem generates one short video clip per scene prompt; each generated clip is approximately five seconds. "
         "If the user does not explicitly provide target_duration_seconds, set total duration to clip_count * 5 seconds. "
         "If the user explicitly provides target_duration_seconds, choose enough clips to cover that duration at about five seconds per clip. "
-        "Choose a calm child-safe bedtime visual plan, complete clip count, total duration, visual_bible, lyric-to-scene plan, "
+        "Direct the result as a polished preschool animated music video: joyful, colorful, emotionally readable, funny or "
+        "wonder-filled where appropriate, and always child-safe. Use the energy principles of successful preschool "
+        "sing-alongs—clear silhouettes, expressive faces, rhythmic gestures, playful cause-and-effect, appealing props, "
+        "and satisfying visual payoffs—without copying any named show, franchise, character, or signature design. "
+        "Choose a child-safe visual plan, complete clip count, total duration, visual_bible, lyric-to-scene plan, "
         "characters, continuity constraints, negative constraints, scene descriptions, camera/motion notes, boundary behavior, "
         "and music prompt. Sung lullabies must be one continuous full-song track, never per-scene song fragments. "
+        "Follow StoryMem's native story-input rules. Each scene is one approximately five-second generated shot, so give "
+        "it one primary action or interaction that can begin, read clearly, and settle within five seconds. Avoid complex "
+        "choreography, multiple simultaneous events, extreme motion, text rendering, or audio-dependent visual events. "
+        "Each shot prompt must be concise but sufficiently detailed, equivalent to 1-4 sentences, with explicit recurring "
+        "character appearance, action, setting layout, mood, shot size, and at most one simple camera movement. "
         "Follow the Wan prompt recipe for each scene clip. Plan every clip with the Advanced Formula: "
         "Subject plus subject description, Scene plus foreground/background description, Motion plus motion description, "
         "Aesthetic Control including light source, lighting type, time of day, shot size, composition, lens, color tone, "
         "camera angle and camera movement, and Stylization. Plan this like a normal edited video storyboard, not like "
-        "one continuous shot. Every clip should be a new shot with its own location or staging, action, shot size, "
+        "one continuous shot. Build a miniature visual arc across the clips: establish the world and goal, develop a "
+        "playful action or anticipation, deliver a clear reaction/payoff, and end on a satisfying final image. Every clip "
+        "should advance that arc with its own staging, action, shot size, "
         "camera angle, subject distance, foreground/background layout, and motion. Use hard edited cuts between "
         "lyric-scene clips unless the user explicitly asks for a single continuous one-shot. Do not repeat generic "
-        "camera language such as the same medium shot for all clips. "
+        "camera language such as the same medium shot for all clips. Choose coverage like a real storyboard: use a wide "
+        "shot to establish spatial relationships, medium shots for readable interaction, close-ups for an expression or "
+        "important prop, and tracking/reveal/overhead angles only when motivated by the action. Do not change locations "
+        "randomly merely to appear different; preserve world geography while changing foreground, subject distance, "
+        "screen direction, action, or point of view. "
         "Keep each scene description between 70 and 120 words. Keep the camera field to one concise camera-movement "
         "sentence under 18 words. Do not place shot size, lens, color tone, composition, or repeated camera labels "
         "inside the camera field; those belong in the scene description once. "
@@ -633,6 +648,13 @@ def _planner_prompt() -> str:
         "enough to stand alone as a video-generation scene, similar to a director's storyboard card. "
         "Put any character or setting continuity details needed for that shot directly into that scene description; "
         "do not rely on a repeated character-bank prefix being added later. "
+        "Keep each shot focused on one to three visible characters. Give the lead a clear pose, gaze target, facial "
+        "expression, and child-readable action. Prefer playful gestures such as waving, bouncing, clapping, pointing, "
+        "peeking, gentle dancing, rowing, stacking, chasing bubbles, or reacting with delight when they fit the lyric; "
+        "do not force generic bedtime stillness onto an energetic song. "
+        "Set cut=true for the first shot and whenever location, time, composition, or action changes. Use cut=false only "
+        "when the next shot deliberately continues the same action from the prior last frame with compatible subjects, "
+        "screen direction, setting, and camera axis. "
         "Every visual scene must prohibit generated text, letters, scary imagery, clutter, unsafe content, dialogue, "
         "and background music, because audio and subtitles are handled separately. "
         "For unsafe lyric events involving unsupported descent, breakage, dropping, crashing, impact, or dangerous "
@@ -724,6 +746,16 @@ def validate_plan_semantics(plan: ProductionPlan, *, require_reviewer_approval: 
             issues.append({"code": "missing_character_selection_metadata", "scene_num": scene.scene_num, "message": "scene must include selected character metadata"})
         elif any(not str(item.get("label", "")).strip() or not str(item.get("selection_rationale", item.get("rationale", ""))).strip() for item in scene.selected_characters if isinstance(item, dict)):
             issues.append({"code": "incomplete_character_selection_metadata", "scene_num": scene.scene_num, "message": "selected characters require label and rationale"})
+        if len(scene.selected_characters) > 3:
+            issues.append(
+                {
+                    "code": "overcrowded_five_second_shot",
+                    "scene_num": scene.scene_num,
+                    "field": "selected_characters",
+                    "message": "a five-second preschool shot should focus on no more than three visible characters",
+                    "evidence": {"selected_character_count": len(scene.selected_characters)},
+                }
+            )
         if require_reviewer_approval and scene.review_status != "approved":
             issues.append({"code": "missing_reviewer_approval", "scene_num": scene.scene_num, "message": "scene requires reviewer approval before generation"})
         if len(scene.video_prompt) >= 900:
@@ -745,6 +777,32 @@ def validate_plan_semantics(plan: ProductionPlan, *, require_reviewer_approval: 
                     "evidence": safety_hits,
                 }
             )
+    if plan.scenes and not plan.scenes[0].cut:
+        issues.append(
+            {
+                "code": "first_storymem_shot_requires_cut",
+                "scene_num": 1,
+                "field": "cut",
+                "message": "the first StoryMem shot must start a new scene with cut=true",
+            }
+        )
+    camera_groups: dict[str, list[int]] = {}
+    for scene in plan.scenes:
+        key = re.sub(r"\b(camera|shot|the|a|an)\b", " ", _clean_sentence(scene.camera).lower())
+        key = " ".join(key.split())
+        camera_groups.setdefault(key, []).append(scene.scene_num)
+    for camera, scene_nums in camera_groups.items():
+        if camera and len(scene_nums) >= 3:
+            for scene_num in scene_nums[2:]:
+                issues.append(
+                    {
+                        "code": "repeated_camera_coverage",
+                        "scene_num": scene_num,
+                        "field": "camera",
+                        "message": "the storyboard repeats the same camera coverage across three or more shots",
+                        "evidence": {"camera": camera, "matching_scene_nums": scene_nums},
+                    }
+                )
     for current, previous in zip(plan.scenes[1:], plan.scenes):
         unchanged = [
             field_name
@@ -772,10 +830,13 @@ def validate_plan_semantics(plan: ProductionPlan, *, require_reviewer_approval: 
 def _critic_prompt() -> str:
     return (
         "You are PlanCriticAgent, the semantic reviewer for a StoryMem video plan before costly GPU generation. "
-        "Review the supplied plan independently of its topic; never substitute canned nursery-rhyme scenes. Return "
+        "Review the supplied plan independently of its topic; never substitute canned nursery-rhyme scenes. Judge it "
+        "as a real director's storyboard for an engaging preschool animated sing-along and according to StoryMem's "
+        "one-five-second-shot-per-prompt constraint. Return "
         "strict JSON with passed, issues, scores, and revision_notes. Score 0.0 to 1.0 for lyric_alignment, "
         "scene_progression, visual_continuity, child_safety, prompt_generatability, and prompt_hygiene. Reject when "
-        "any scene misrepresents its lyric, repeats prior staging without narrative purpose, drifts outside the visual "
+        "any scene misrepresents its lyric, fails to advance a clear setup-development-payoff arc, repeats prior staging "
+        "without narrative purpose, lacks a readable expression/gaze/action, overloads the five-second beat, drifts outside the visual "
         "bible, changes a recurring character's anchors, depicts unsafe literal action, is vague or internally "
         "contradictory, overloads a five-second clip, conflicts on camera direction, or requests generated text, "
         "dialogue, inset frames, or background music inside a visual scene. Audio planning is reviewed separately; "

@@ -560,6 +560,38 @@ class AgenticArchitectureTests(unittest.TestCase):
         codes = {issue["code"] for issue in planner.last_validation_report["issues"]}
         self.assertIn("repeated_scene_staging", codes)
 
+    def test_flat_camera_coverage_requires_directorial_revision(self):
+        decision = self._structured_decision(["Set up", "Build", "React", "Pay off"])
+        for scene in decision["scenes"]:
+            scene["camera"] = "Camera holds a static medium shot"
+        planner = PromptPlannerAgent(MockAgentBackend(responses={"planner": decision}), max_plan_revisions=0)
+
+        planner.plan(NurseryRhymeInput(topic_or_name="original playful shape parade"))
+
+        codes = {issue["code"] for issue in planner.last_validation_report["issues"]}
+        self.assertIn("repeated_camera_coverage", codes)
+
+    def test_overcrowded_five_second_shot_requires_focus(self):
+        decision = self._structured_decision(["Friends gather for a game"])
+        decision["selected_characters"] = [
+            {
+                "label": f"friend_{index}",
+                "description": f"same colorful rounded friend {index}",
+                "selection_rationale": "joins the game",
+            }
+            for index in range(1, 5)
+        ]
+        decision["scenes"][0]["selected_characters"] = [
+            {"label": f"friend_{index}", "selection_rationale": "joins the game"}
+            for index in range(1, 5)
+        ]
+        planner = PromptPlannerAgent(MockAgentBackend(responses={"planner": decision}), max_plan_revisions=0)
+
+        planner.plan(NurseryRhymeInput(topic_or_name="original playground game"))
+
+        codes = {issue["code"] for issue in planner.last_validation_report["issues"]}
+        self.assertIn("overcrowded_five_second_shot", codes)
+
     def test_compiled_prompt_uses_natural_character_text_and_authoritative_camera(self):
         decision = self._structured_decision(["Line one"], character_label="rain_child")
         decision["scenes"][0]["subjects"] = [
