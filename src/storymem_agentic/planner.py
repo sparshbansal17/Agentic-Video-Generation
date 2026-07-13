@@ -1081,7 +1081,7 @@ def _critic_issue_is_actionable(issue: dict[str, Any], review_plan: dict[str, An
         "scene_goal", "lyric_interpretation", "setting", "subjects", "action", "camera", "style",
         "safety_adaptation", "selected_characters", "expected_mood", "boundary_behavior", "cut",
     }
-    plan_fields = {"visual_bible", "selected_characters", "scenes"}
+    plan_fields = {"visual_bible", "selected_characters"}
     field = str(issue.get("field") or "").split("[", 1)[0]
     # Hygiene is already enforced deterministically. Small semantic critics tend
     # to misuse this label for harmless wording preferences, so keep it advisory.
@@ -1222,7 +1222,7 @@ class PlanCriticAgent:
             for issue in issues
             if isinstance(issue, dict)
             and issue.get("scene_num") is None
-            and issue.get("field") in {"visual_bible", "selected_characters", "scenes"}
+            and issue.get("field") in {"visual_bible", "selected_characters"}
             and "replacement_value" in issue
         }
         return {
