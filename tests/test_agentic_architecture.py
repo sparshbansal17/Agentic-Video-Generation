@@ -367,7 +367,8 @@ class AgenticArchitectureTests(unittest.TestCase):
 
         report = validate_plan_semantics(plan, require_reviewer_approval=False)
 
-        self.assertIn("visible_character_not_selected", {issue["code"] for issue in report["issues"]})
+        issue = next(issue for issue in report["issues"] if issue["code"] == "visible_character_not_selected")
+        self.assertEqual([item["label"] for item in issue["replacement_value"]], ["fox", "moon_owl"])
 
     def test_visual_bible_contains_used_cast_not_every_available_character(self):
         decision = self._structured_decision(["A fox crosses a hill"], character_label="fox")
@@ -492,7 +493,7 @@ class AgenticArchitectureTests(unittest.TestCase):
                                 "source": "review_contract.prompt_generatability",
                             },
                             "suggested_change": "use one eye-level tracking direction",
-                            "replacement_value": "Camera tracks gently at child-eye level",
+                            "replacement_value": {"camera": "Camera tracks gently at child-eye level"},
                         }],
                         "scores": {"prompt_generatability": 1.4, "lyric_alignment": "0.8", "bad": "unknown"},
                         "revision_notes": ["  Resolve the camera field.  "],

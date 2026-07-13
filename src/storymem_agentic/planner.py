@@ -770,19 +770,37 @@ def validate_plan_semantics(plan: ProductionPlan, *, require_reviewer_approval: 
             if isinstance(item, dict) and str(item.get("label", "")).strip()
         }
         visible_text = " ".join((scene.setting, scene.subjects, scene.action)).lower().replace("_", " ")
-        for profile in plan.character_bank:
-            label_key = _character_lookup_key(profile.label)
-            label_words = label_key.replace("_", " ")
-            if label_words and label_words in visible_text and label_key not in selected_labels:
-                issues.append(
-                    {
-                        "code": "visible_character_not_selected",
-                        "scene_num": scene.scene_num,
-                        "field": "selected_characters",
-                        "message": f"visible character {profile.label} is absent from scene selection metadata",
-                        "evidence": {"visible_label": profile.label, "selected_labels": sorted(selected_labels)},
-                    }
-                )
+        missing_profiles = [
+            profile
+            for profile in plan.character_bank
+            if _character_lookup_key(profile.label).replace("_", " ") in visible_text
+            and _character_lookup_key(profile.label) not in selected_labels
+        ]
+        if missing_profiles:
+            replacement = [dict(item) for item in scene.selected_characters if isinstance(item, dict)]
+            replacement.extend(
+                {
+                    "label": profile.label,
+                    "selection_rationale": "visible subject explicitly named in this scene",
+                    "description": profile.description,
+                }
+                for profile in missing_profiles
+            )
+            issues.append(
+                {
+                    "code": "visible_character_not_selected",
+                    "scene_num": scene.scene_num,
+                    "field": "selected_characters",
+                    "message": "every visible bank character must appear in scene selection metadata",
+                    "evidence": {
+                        "observed": json.dumps(sorted(selected_labels)),
+                        "expected": json.dumps([profile.label for profile in missing_profiles]),
+                        "source": "character_bank labels explicitly named in setting, subjects, or action",
+                    },
+                    "suggested_change": "add the missing visible characters without changing the scene semantics",
+                    "replacement_value": replacement,
+                }
+            )
         if require_reviewer_approval and scene.review_status != "approved":
             issues.append({"code": "missing_reviewer_approval", "scene_num": scene.scene_num, "message": "scene requires reviewer approval before generation"})
         if len(scene.video_prompt) >= 900:
@@ -1056,6 +1074,13 @@ def _normalize_critic_issue(issue: Any, index: int) -> dict[str, Any]:
     for key in ("field", "evidence", "suggested_change", "replacement_value"):
         if issue.get(key) not in (None, "", [], {}):
             normalized[key] = issue[key]
+    field = normalized.get("field")
+    replacement = normalized.get("replacement_value")
+    if isinstance(field, str) and isinstance(replacement, dict) and set(replacement) == {field}:
+        normalized["replacement_value"] = replacement[field]
+    evidence = normalized.get("evidence")
+    if isinstance(field, str) and isinstance(evidence, dict) and not evidence.get("observed") and evidence.get(field):
+        normalized["evidence"] = {**evidence, "observed": evidence[field]}
     return normalized
 
 
