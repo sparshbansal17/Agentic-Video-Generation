@@ -809,10 +809,11 @@ def validate_plan_semantics(plan: ProductionPlan, *, require_reviewer_approval: 
             issues.append({"code": "missing_visual_guard", "scene_num": scene.scene_num, "message": "prompt is missing required visual guardrails"})
         if "no dialogue" not in lower_prompt or "background music" not in lower_prompt:
             issues.append({"code": "missing_audio_guard", "scene_num": scene.scene_num, "message": "prompt must keep dialogue and music out of visual generation"})
-        safety_hits = [
-            *_unsafe_safety_hits(scene.description, field="description"),
-            *_unsafe_safety_hits(scene.video_prompt, field="video_prompt"),
-        ]
+        safety_hits = []
+        for field_name in (
+            "scene_goal", "lyric_interpretation", "setting", "subjects", "action", "camera", "safety_adaptation"
+        ):
+            safety_hits.extend(_unsafe_safety_hits(getattr(scene, field_name), field=field_name))
         if safety_hits:
             issues.append(
                 {
@@ -820,6 +821,27 @@ def validate_plan_semantics(plan: ProductionPlan, *, require_reviewer_approval: 
                     "scene_num": scene.scene_num,
                     "message": "scene contains an unsafe visual action that must be adapted before generation",
                     "evidence": safety_hits,
+                }
+            )
+        action_lower = scene.action.lower().strip()
+        if re.match(r"^camera\b", action_lower):
+            issues.append(
+                {
+                    "code": "camera_direction_in_action",
+                    "scene_num": scene.scene_num,
+                    "field": "action",
+                    "message": "action must describe a visible subject action, not camera direction",
+                    "evidence": {"observed": scene.action, "expected": "visible subject action", "source": "action"},
+                }
+            )
+        if re.search(r"\b(?:sing|sings|singing|sang|think|thinks|thinking|reflect|reflects|reflecting)\b", action_lower):
+            issues.append(
+                {
+                    "code": "audio_or_internal_action",
+                    "scene_num": scene.scene_num,
+                    "field": "action",
+                    "message": "replace audio-only or internal-state action with a readable pose, gaze, expression, or gesture",
+                    "evidence": {"observed": scene.action, "expected": "directly visible action", "source": "action"},
                 }
             )
     if plan.scenes and not plan.scenes[0].cut:
@@ -1043,6 +1065,7 @@ def _unsafe_safety_hits(text: str, *, field: str) -> list[dict[str, str]]:
         r"\babout to fall\b",
         r"\bdrop toward\b",
         r"\bdropping\b",
+        r"\bdescend(?:s|ed|ing)?\b",
         r"\bcrash(?:es|ing)?\b",
         r"\bimpact(?:s|ing)?\b",
         r"\b(?:break|breaks|breaking)\b.{0,40}\b(?:cradle|branch|bough|support|rope|rail)\b",
@@ -1464,6 +1487,7 @@ def _constrain_revision_to_issues(response: dict[str, Any], issues: list[dict[st
         revision
         for revision in revisions
         if isinstance(revision, dict)
+        and revision.get("replacement_value") not in (None, "", [], {})
         and (
             revision.get("scene_num") in broad_scenes
             or (revision.get("scene_num"), str(revision.get("field_to_change"))) in exact

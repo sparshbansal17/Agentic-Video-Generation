@@ -370,6 +370,21 @@ class AgenticArchitectureTests(unittest.TestCase):
         issue = next(issue for issue in report["issues"] if issue["code"] == "visible_character_not_selected")
         self.assertEqual([item["label"] for item in issue["replacement_value"]], ["fox", "moon_owl"])
 
+    def test_semantic_validation_rejects_nonvisual_and_unsupported_descent_actions(self):
+        decision = self._structured_decision(["A dream carries the cradle"], character_label="guide")
+        decision["scenes"][0]["action"] = "The guide sings while the cradle descends from a branch"
+        plan = PromptPlannerAgent(MockAgentBackend(responses={"planner": decision}), max_plan_revisions=0).plan(
+            NurseryRhymeInput(topic_or_name="original cradle dream")
+        )
+
+        codes = {
+            issue["code"]
+            for issue in validate_plan_semantics(plan, require_reviewer_approval=False)["issues"]
+        }
+
+        self.assertIn("audio_or_internal_action", codes)
+        self.assertIn("unsafe_visual_action", codes)
+
     def test_visual_bible_contains_used_cast_not_every_available_character(self):
         decision = self._structured_decision(["A fox crosses a hill"], character_label="fox")
         decision["selected_characters"].append(
