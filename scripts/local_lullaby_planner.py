@@ -228,6 +228,7 @@ def generate_with_transformers(
     max_new_tokens: int,
     *,
     sample: bool = False,
+    forbidden_words: list[str] | None = None,
 ) -> str:
     import torch
     from transformers import AutoProcessor, Qwen2VLForConditionalGeneration
@@ -251,16 +252,41 @@ def generate_with_transformers(
     ]
     text = processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
     inputs = processor(text=[text], return_tensors="pt").to(model.device)
-    generated = model.generate(
-        **inputs,
-        max_new_tokens=max_new_tokens,
-        do_sample=sample,
-        temperature=0.65 if sample else None,
-        top_p=0.9 if sample else None,
-    )
     prompt_len = inputs["input_ids"].shape[-1]
-    output_ids = generated[:, prompt_len:]
-    return processor.batch_decode(output_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False)[0]
+    bad_words_ids = None
+    if forbidden_words:
+        variants = {
+            variant
+            for word in forbidden_words
+            for variant in (word, f" {word}", word.capitalize(), f" {word.capitalize()}")
+        }
+        bad_words_ids = [
+            token_ids
+            for variant in sorted(variants)
+            if (token_ids := processor.tokenizer.encode(variant, add_special_tokens=False))
+        ]
+    last_output = ""
+    for _attempt in range(3 if sample else 1):
+        generated = model.generate(
+            **inputs,
+            max_new_tokens=max_new_tokens,
+            do_sample=sample,
+            temperature=0.35 if sample else None,
+            top_p=0.85 if sample else None,
+            bad_words_ids=bad_words_ids,
+        )
+        output_ids = generated[:, prompt_len:]
+        last_output = processor.batch_decode(
+            output_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False
+        )[0]
+        if not sample:
+            break
+        try:
+            extract_json(last_output)
+            break
+        except (json.JSONDecodeError, ValueError):
+            continue
+    return last_output
 
 
 def main() -> int:
@@ -272,8 +298,24 @@ def main() -> int:
 
     payload = json.loads(sys.stdin.read())
     user_prompt = build_user_prompt(payload)
-    is_revision = bool(payload.get("context", {}).get("validation_issues"))
-    raw = generate_with_transformers(args.model, user_prompt, args.max_new_tokens, sample=is_revision)
+    validation_issues = payload.get("context", {}).get("validation_issues") or []
+    is_revision = bool(validation_issues)
+    issue_codes = {
+        str(issue.get("code", "")) for issue in validation_issues if isinstance(issue, dict)
+    }
+    forbidden_words = None
+    if "unsafe_visual_action" in issue_codes:
+        forbidden_words = [
+            "fall", "falls", "falling", "fell", "drop", "drops", "dropping", "dropped",
+            "break", "breaks", "breaking", "broke", "crash", "crashes", "crashing", "impact",
+        ]
+    raw = generate_with_transformers(
+        args.model,
+        user_prompt,
+        args.max_new_tokens,
+        sample=is_revision,
+        forbidden_words=forbidden_words,
+    )
     if args.debug_output:
         with open(args.debug_output, "w", encoding="utf-8") as handle:
             handle.write(raw)
