@@ -229,6 +229,7 @@ def generate_with_transformers(
     *,
     sample: bool = False,
     forbidden_words: list[str] | None = None,
+    sample_seed: int | None = None,
 ) -> str:
     import torch
     from transformers import AutoProcessor, Qwen2VLForConditionalGeneration
@@ -266,6 +267,10 @@ def generate_with_transformers(
             if (token_ids := processor.tokenizer.encode(variant, add_special_tokens=False))
         ]
     last_output = ""
+    if sample_seed is not None:
+        torch.manual_seed(sample_seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(sample_seed)
     for _attempt in range(3 if sample else 1):
         generated = model.generate(
             **inputs,
@@ -309,12 +314,18 @@ def main() -> int:
             "fall", "falls", "falling", "fell", "drop", "drops", "dropping", "dropped",
             "break", "breaks", "breaking", "broke", "crash", "crashes", "crashing", "impact",
         ]
+    if "repeated_camera_coverage" in issue_codes:
+        forbidden_words = [*(forbidden_words or []), "medium shot"]
+    response_key = str(payload.get("context", {}).get("response_key", "planner_revision_1"))
+    revision_number_match = re.search(r"(\d+)$", response_key)
+    sample_seed = 1701 + (int(revision_number_match.group(1)) if revision_number_match else 0) * 7919
     raw = generate_with_transformers(
         args.model,
         user_prompt,
         args.max_new_tokens,
         sample=is_revision,
         forbidden_words=forbidden_words,
+        sample_seed=sample_seed if is_revision else None,
     )
     if args.debug_output:
         with open(args.debug_output, "w", encoding="utf-8") as handle:
