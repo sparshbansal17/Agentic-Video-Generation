@@ -10,7 +10,7 @@ from storymem_agentic.alignment import analyze_whisperx_alignment
 from storymem_agentic.agents import MockAgentBackend
 from storymem_agentic.feedback import apply_revision_plan, build_revision_plan
 from storymem_agentic.media_evaluator import evaluate_iteration
-from storymem_agentic.planner import PlanCriticAgent, PromptPlannerAgent, build_production_plan, validate_plan_semantics
+from storymem_agentic.planner import PlanCriticAgent, PromptPlannerAgent, build_production_plan, build_visual_bible, validate_plan_semantics
 from storymem_agentic.orchestrator import default_storymem_dir, run_workflow
 from storymem_agentic.review_agents import _normalize_model_report
 from storymem_agentic.schemas import EvaluationReport, NurseryRhymeInput, ReviewerReport, RevisionPlan
@@ -350,6 +350,42 @@ class AgenticArchitectureTests(unittest.TestCase):
         self.assertIn("revised", plan.scenes[1].description)
         self.assertTrue(validate_plan_semantics(plan)["passed"])
         self.assertEqual([step["kind"] for step in planner.agent_steps], ["planner_draft", "plan_review", "planner_revision", "plan_review"])
+
+    def test_visible_bank_character_must_be_selected_for_scene(self):
+        decision = self._structured_decision(["A fox greets an owl"], character_label="fox")
+        decision["selected_characters"].append(
+            {
+                "label": "moon_owl",
+                "description": "same round silver owl with blue wings",
+                "selection_rationale": "the owl is greeted in the lyric",
+            }
+        )
+        decision["scenes"][0]["subjects"] += "; moon owl waits beside the fox"
+        plan = PromptPlannerAgent(MockAgentBackend(responses={"planner": decision}), max_plan_revisions=0).plan(
+            NurseryRhymeInput(topic_or_name="original fox and owl song")
+        )
+
+        report = validate_plan_semantics(plan, require_reviewer_approval=False)
+
+        self.assertIn("visible_character_not_selected", {issue["code"] for issue in report["issues"]})
+
+    def test_visual_bible_contains_used_cast_not_every_available_character(self):
+        decision = self._structured_decision(["A fox crosses a hill"], character_label="fox")
+        decision["selected_characters"].append(
+            {
+                "label": "unused_owl",
+                "description": "same round silver owl with blue wings",
+                "selection_rationale": "available supporting character",
+            }
+        )
+        plan = PromptPlannerAgent(MockAgentBackend(responses={"planner": decision}), max_plan_revisions=0).plan(
+            NurseryRhymeInput(topic_or_name="original fox hill song")
+        )
+
+        recurring = {item["label"] for item in build_visual_bible(plan)["recurring_characters"]}
+
+        self.assertIn("fox", recurring)
+        self.assertNotIn("unused_owl", recurring)
 
     def test_planner_accepts_small_agent_authored_revision_patch(self):
         initial = self._structured_decision(["Copper kite", "Velvet hill"], character_label="fox")

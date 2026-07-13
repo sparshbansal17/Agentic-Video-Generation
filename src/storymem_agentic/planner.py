@@ -699,6 +699,12 @@ def _profiles_from_decision(decision: dict[str, Any], visual_style: str, charact
 
 
 def build_visual_bible(plan: ProductionPlan) -> dict[str, Any]:
+    selected_labels = {
+        _character_lookup_key(str(item.get("label", "")))
+        for scene in plan.scenes
+        for item in scene.selected_characters
+        if isinstance(item, dict) and str(item.get("label", "")).strip()
+    }
     return {
         "primary_world": str(plan.evaluation_rubric.get("visual_bible", {}).get("primary_world") or "agent_designed_world"),
         "visual_style": plan.rhyme.visual_style,
@@ -712,6 +718,7 @@ def build_visual_bible(plan: ProductionPlan) -> dict[str, Any]:
                 "negative_constraints": profile.negative_constraints,
             }
             for profile in plan.character_bank
+            if _character_lookup_key(profile.label) in selected_labels
         ],
         "prohibited_imagery": [
             "generated text",
@@ -757,6 +764,25 @@ def validate_plan_semantics(plan: ProductionPlan, *, require_reviewer_approval: 
                     "evidence": {"selected_character_count": len(scene.selected_characters)},
                 }
             )
+        selected_labels = {
+            _character_lookup_key(str(item.get("label", "")))
+            for item in scene.selected_characters
+            if isinstance(item, dict) and str(item.get("label", "")).strip()
+        }
+        visible_text = " ".join((scene.setting, scene.subjects, scene.action)).lower().replace("_", " ")
+        for profile in plan.character_bank:
+            label_key = _character_lookup_key(profile.label)
+            label_words = label_key.replace("_", " ")
+            if label_words and label_words in visible_text and label_key not in selected_labels:
+                issues.append(
+                    {
+                        "code": "visible_character_not_selected",
+                        "scene_num": scene.scene_num,
+                        "field": "selected_characters",
+                        "message": f"visible character {profile.label} is absent from scene selection metadata",
+                        "evidence": {"visible_label": profile.label, "selected_labels": sorted(selected_labels)},
+                    }
+                )
         if require_reviewer_approval and scene.review_status != "approved":
             issues.append({"code": "missing_reviewer_approval", "scene_num": scene.scene_num, "message": "scene requires reviewer approval before generation"})
         if len(scene.video_prompt) >= 900:
@@ -839,7 +865,14 @@ def _critic_prompt() -> str:
         "individual shots and the overall plan: speaker/subject meaning, setup-development-payoff, redundant beats, "
         "character motivation and plurality, world geography, emotional progression, visual-versus-audio actions, "
         "camera motivation, cut continuity, and whether a revised action still agrees with its scene_goal and "
-        "lyric_interpretation. Reject when "
+        "lyric_interpretation. Use the lyric_line embedded in each scene as the source of truth. Audit every scene in "
+        "order and compare lyric_line independently against scene_goal, lyric_interpretation, setting, subjects, and "
+        "action; never assume the plan's interpretation is correct. Then audit the sequence as one causal visual story. "
+        "Reject an action that depicts the opposite of a stated wish, merely paraphrases a lyric without a visible "
+        "story beat, uses an abstract inner state such as reflecting or enjoying without a readable pose or expression, "
+        "assigns singing to visual generation, introduces irrelevant characters or locations, lists a visible bank "
+        "character absent from selected_characters, or leaves a safety-adapted action contradicting scene_goal or "
+        "lyric_interpretation. Do not approve merely because fields are populated or child-safe. Reject when "
         "any scene misrepresents its lyric, fails to advance a clear setup-development-payoff arc, repeats prior staging "
         "without narrative purpose, lacks a readable expression/gaze/action, overloads the five-second beat, drifts outside the visual "
         "bible, changes a recurring character's anchors, depicts unsafe literal action, is vague or internally "
@@ -1057,7 +1090,7 @@ def _critic_review_plan(plan: ProductionPlan) -> dict[str, Any]:
     return {
         "lyrics": [segment.text for segment in plan.lyric_segments],
         "visual_bible": build_visual_bible(plan),
-        "selected_characters": [
+        "available_character_options": [
             {
                 "label": profile.label,
                 "role": profile.role,
@@ -1070,7 +1103,10 @@ def _critic_review_plan(plan: ProductionPlan) -> dict[str, Any]:
             for profile in plan.character_bank
         ],
         "scenes": [
-            {field: getattr(scene, field) for field in scene_fields}
+            {
+                "lyric_line": plan.lyric_segments[scene.lyric_segment_index - 1].text,
+                **{field: getattr(scene, field) for field in scene_fields},
+            }
             for scene in plan.scenes
         ],
     }
