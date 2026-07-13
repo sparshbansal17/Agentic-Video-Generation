@@ -73,12 +73,22 @@ def build_user_prompt(payload: dict[str, Any]) -> str:
                 "low child-eye angle, overhead composition, gentle reveal, or another clearly different shot size/angle.\n"
                 "- Do not merely rephrase the same medium/static/tracking shot. Keep at most one simple movement.\n"
             )
+        crowd_instruction = ""
+        if "overcrowded_five_second_shot" in issue_codes:
+            crowd_instruction = (
+                "\nCRITICAL CAST-SIMPLIFICATION REVISION REQUIRED:\n"
+                "- Keep at most three visible characters in each cited five-second scene.\n"
+                "- Choose only characters needed for the lyric and story beat; do not preserve irrelevant bank entries.\n"
+                "- Rewrite selected_characters, subjects, setting, and action together so removed characters are not "
+                "named, depicted, or assigned actions anywhere in that scene.\n"
+                "- Preserve the lead character and the scene's lyric meaning while simplifying the interaction.\n"
+            )
         revision_block = (
             "\nThis is a revision request. Fix every validation issue below by returning a complete replacement "
             "planner decision JSON. Preserve supplied lyrics exactly and edit the structured scene descriptions, "
             "camera fields, characters, and continuity fields before prompt compilation.\n"
             f"Validation issues JSON:\n{json.dumps(validation_issues, indent=2)}\n"
-            f"{unsafe_instruction}{diversity_instruction}{camera_instruction}\n"
+            f"{unsafe_instruction}{diversity_instruction}{camera_instruction}{crowd_instruction}\n"
             "GENERAL CORRECTION CONTRACT:\n"
             "- Treat every issue object, regardless of code, as a binding acceptance criterion.\n"
             "- Use scene_num to edit the affected scene and use field/evidence/message to determine the required change.\n"

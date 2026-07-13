@@ -845,7 +845,13 @@ def validate_plan_semantics(plan: ProductionPlan, *, require_reviewer_approval: 
                         "scene_num": scene_num,
                         "field": "camera",
                         "message": "the storyboard repeats the same camera coverage across three or more shots",
-                        "evidence": {"camera": camera, "matching_scene_nums": scene_nums},
+                        "evidence": {
+                            "observed": camera,
+                            "expected": "distinct motivated coverage for this shot",
+                            "source": f"camera fields in scenes {scene_nums}",
+                        },
+                        "suggested_change": "use distinct coverage without changing scene semantics",
+                        "replacement_value": _scene_camera_plan(scene_num),
                     }
                 )
     for current, previous in zip(plan.scenes[1:], plan.scenes):
@@ -1452,7 +1458,7 @@ def _constrain_revision_to_issues(response: dict[str, Any], issues: list[dict[st
         for issue in issues
         if isinstance(issue, dict)
         and issue.get("scene_num") is not None
-        and issue.get("code") in {"unsafe_visual_action", "repeated_scene_staging"}
+        and issue.get("code") in {"unsafe_visual_action", "repeated_scene_staging", "overcrowded_five_second_shot"}
     }
     filtered = [
         revision
