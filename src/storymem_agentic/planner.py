@@ -1438,6 +1438,34 @@ def _apply_planner_revision(previous: dict[str, Any], response: dict[str, Any]) 
     return revised
 
 
+def _constrain_revision_to_issues(response: dict[str, Any], issues: list[dict[str, Any]]) -> dict[str, Any]:
+    revisions = response.get("scene_revisions")
+    if not isinstance(revisions, list):
+        return response
+    exact = {
+        (issue.get("scene_num"), str(issue.get("field")))
+        for issue in issues
+        if isinstance(issue, dict) and issue.get("scene_num") is not None and issue.get("field")
+    }
+    broad_scenes = {
+        issue.get("scene_num")
+        for issue in issues
+        if isinstance(issue, dict)
+        and issue.get("scene_num") is not None
+        and issue.get("code") in {"unsafe_visual_action", "repeated_scene_staging"}
+    }
+    filtered = [
+        revision
+        for revision in revisions
+        if isinstance(revision, dict)
+        and (
+            revision.get("scene_num") in broad_scenes
+            or (revision.get("scene_num"), str(revision.get("field_to_change"))) in exact
+        )
+    ]
+    return {**response, "scene_revisions": filtered}
+
+
 class PromptPlannerAgent:
     def __init__(
         self,
@@ -1620,6 +1648,7 @@ class PromptPlannerAgent:
                 self.last_error = str(exc)
                 self.agent_steps.append({"kind": "planner_revision", "attempt": attempt + 2, "status": "backend_error", "error": str(exc), "context": revision_context})
                 break
+            response = _constrain_revision_to_issues(response, merged_issues)
             candidate = _apply_planner_revision(candidate, response)
         if last_plan is not None:
             return last_plan

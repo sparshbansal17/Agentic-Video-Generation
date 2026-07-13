@@ -90,7 +90,8 @@ def build_user_prompt(payload: dict[str, Any]) -> str:
         return (
             "Revise a structured video plan by returning a SMALL JSON PATCH, not the complete plan.\n"
             "The patch shape is: {\"scene_revisions\": [{\"scene_num\": 1, \"field_to_change\": "
-            "\"replacement value\"}], \"plan_updates\": {}}. Include every field needed to resolve each issue, "
+            "\"camera\", \"replacement_value\": \"Camera gently reveals the subject\"}], \"plan_updates\": {}}. "
+            "Include every field needed to resolve each issue, "
             "but do not include unchanged scenes or explanatory prose. Preserve lyrics and character identity.\n"
             "field_to_change MUST be one of: scene_goal, lyric_interpretation, setting, subjects, action, camera, "
             "style, safety_adaptation, selected_characters, expected_mood, boundary_behavior, cut. Never patch "

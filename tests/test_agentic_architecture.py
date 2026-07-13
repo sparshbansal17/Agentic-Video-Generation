@@ -10,7 +10,7 @@ from storymem_agentic.alignment import analyze_whisperx_alignment
 from storymem_agentic.agents import MockAgentBackend
 from storymem_agentic.feedback import apply_revision_plan, build_revision_plan
 from storymem_agentic.media_evaluator import evaluate_iteration
-from storymem_agentic.planner import PlanCriticAgent, PromptPlannerAgent, build_production_plan, build_visual_bible, validate_plan_semantics
+from storymem_agentic.planner import PlanCriticAgent, PromptPlannerAgent, _constrain_revision_to_issues, build_production_plan, build_visual_bible, validate_plan_semantics
 from storymem_agentic.orchestrator import default_storymem_dir, run_workflow
 from storymem_agentic.review_agents import _normalize_model_report
 from storymem_agentic.schemas import EvaluationReport, NurseryRhymeInput, ReviewerReport, RevisionPlan
@@ -408,6 +408,19 @@ class AgenticArchitectureTests(unittest.TestCase):
 
         self.assertTrue(validate_plan_semantics(plan)["passed"])
         self.assertIn("velvet hilltop", plan.scenes[1].setting)
+
+    def test_revision_patch_cannot_edit_uncited_scene(self):
+        patch = {
+            "scene_revisions": [
+                {"scene_num": 1, "field_to_change": "camera", "replacement_value": "unauthorized camera"},
+                {"scene_num": 3, "field_to_change": "camera", "replacement_value": "motivated close-up"},
+            ]
+        }
+        issues = [{"code": "repeated_camera_coverage", "scene_num": 3, "field": "camera"}]
+
+        constrained = _constrain_revision_to_issues(patch, issues)
+
+        self.assertEqual(constrained["scene_revisions"], [patch["scene_revisions"][1]])
 
     def test_unchanged_invalid_revision_is_reported_generically(self):
         invalid = self._structured_decision(["Copper kite", "Velvet hill"], character_label="fox")
