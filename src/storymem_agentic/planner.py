@@ -144,6 +144,7 @@ PLAN_CRITIC_SCHEMA: dict[str, Any] = {
                         },
                     },
                     "suggested_change": {"type": "string"},
+                    "replacement_value": {},
                 },
             },
         },
@@ -831,10 +832,14 @@ def _critic_prompt() -> str:
     return (
         "You are PlanCriticAgent, the semantic reviewer for a StoryMem video plan before costly GPU generation. "
         "Review the supplied plan independently of its topic; never substitute canned nursery-rhyme scenes. Judge it "
-        "as a real director's storyboard for an engaging preschool animated sing-along and according to StoryMem's "
+        "as a human story editor and director for an engaging preschool animated sing-along and according to StoryMem's "
         "one-five-second-shot-per-prompt constraint. Return "
         "strict JSON with passed, issues, scores, and revision_notes. Score 0.0 to 1.0 for lyric_alignment, "
-        "scene_progression, visual_continuity, child_safety, prompt_generatability, and prompt_hygiene. Reject when "
+        "scene_progression, visual_continuity, child_safety, prompt_generatability, and prompt_hygiene. Review both "
+        "individual shots and the overall plan: speaker/subject meaning, setup-development-payoff, redundant beats, "
+        "character motivation and plurality, world geography, emotional progression, visual-versus-audio actions, "
+        "camera motivation, cut continuity, and whether a revised action still agrees with its scene_goal and "
+        "lyric_interpretation. Reject when "
         "any scene misrepresents its lyric, fails to advance a clear setup-development-payoff arc, repeats prior staging "
         "without narrative purpose, lacks a readable expression/gaze/action, overloads the five-second beat, drifts outside the visual "
         "bible, changes a recurring character's anchors, depicts unsafe literal action, is vague or internally "
@@ -842,7 +847,9 @@ def _critic_prompt() -> str:
         "dialogue, inset frames, or background music inside a visual scene. Audio planning is reviewed separately; "
         "do not review or reinterpret music_prompt. For each semantic issue return a stable snake_case code, exact "
         "scene_num (or null for plan-wide issues), affected field when known, concise evidence, and a suggested_change "
-        "that preserves the user's input. Evidence must be an object with observed (an exact plan fact), expected "
+        "that preserves the user's input. Also return replacement_value: the exact complete JSON value that should "
+        "replace the cited editable field, not an instruction and not a whole regenerated plan. For plan-wide issues, "
+        "target only visual_bible, selected_characters, or scenes. Evidence must be an object with observed (an exact plan fact), expected "
         "(the conflicting requirement), and source (the field, lyric, visual-bible rule, or comparison scene). Only "
         "review planner-owned fields present in review_plan; do not review derived prompts, timing, audio_description, "
         "first_frame_prompt, subtitle metadata, or guardrail wording. A prohibition such as 'no generated text' is a "
@@ -1013,7 +1020,7 @@ def _normalize_critic_issue(issue: Any, index: int) -> dict[str, Any]:
         "scene_num": scene_num,
         "message": message,
     }
-    for key in ("field", "evidence", "suggested_change"):
+    for key in ("field", "evidence", "suggested_change", "replacement_value"):
         if issue.get(key) not in (None, "", [], {}):
             normalized[key] = issue[key]
     return normalized
@@ -1103,7 +1110,14 @@ def _critic_issue_is_actionable(issue: dict[str, Any], review_plan: dict[str, An
     if source.startswith("visual_bible") and expected not in json.dumps(review_plan.get("visual_bible", {}), sort_keys=True).lower():
         return False
     suggested_change = issue.get("suggested_change")
-    return isinstance(suggested_change, str) and bool(suggested_change.strip())
+    if not isinstance(suggested_change, str) or not suggested_change.strip():
+        return False
+    if "replacement_value" not in issue:
+        return False
+    replacement = issue["replacement_value"]
+    if scene_num is not None and replacement == review_plan["scenes"][scene_num - 1].get(field):
+        return False
+    return True
 
 
 class PlanCriticAgent:
@@ -1191,6 +1205,26 @@ class PlanCriticAgent:
         for issue in deterministic_issues:
             if isinstance(issue, dict) and (str(issue.get("code")), issue.get("scene_num")) not in known:
                 issues.append(issue)
+        scene_revisions = [
+            {
+                "scene_num": issue["scene_num"],
+                "field_to_change": issue["field"],
+                "replacement_value": issue["replacement_value"],
+            }
+            for issue in issues
+            if isinstance(issue, dict)
+            and issue.get("scene_num") is not None
+            and issue.get("field")
+            and "replacement_value" in issue
+        ]
+        plan_updates = {
+            str(issue["field"]): issue["replacement_value"]
+            for issue in issues
+            if isinstance(issue, dict)
+            and issue.get("scene_num") is None
+            and issue.get("field") in {"visual_bible", "selected_characters", "scenes"}
+            and "replacement_value" in issue
+        }
         return {
             "passed": not issues,
             "issues": issues,
@@ -1199,6 +1233,7 @@ class PlanCriticAgent:
                 _clean_sentence(str(note)) for note in response.get("revision_notes", []) if str(note).strip()
             ] if isinstance(response.get("revision_notes", []), list) else [],
             "warnings": warnings,
+            "targeted_revision": {"scene_revisions": scene_revisions, "plan_updates": plan_updates},
         }
 
 
@@ -1482,6 +1517,23 @@ class PromptPlannerAgent:
                 return plan
             if attempt >= self.max_plan_revisions:
                 return plan
+            targeted_revision = critic_report.get("targeted_revision", {})
+            if isinstance(targeted_revision, dict) and (
+                targeted_revision.get("scene_revisions") or targeted_revision.get("plan_updates")
+            ):
+                reviewer_candidate = _apply_planner_revision(candidate, targeted_revision)
+                if reviewer_candidate != candidate:
+                    self.agent_steps.append(
+                        {
+                            "kind": "planner_revision",
+                            "attempt": attempt + 2,
+                            "status": "reviewer_targeted_patch_applied",
+                            "source": "PlanCriticAgent",
+                            "targeted_revision": targeted_revision,
+                        }
+                    )
+                    candidate = reviewer_candidate
+                    continue
             revision_context = {
                 "response_key": f"planner_revision_{attempt + 1}",
                 "input": _planner_input_context(rhyme),

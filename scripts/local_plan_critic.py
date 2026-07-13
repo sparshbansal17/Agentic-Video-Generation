@@ -23,7 +23,12 @@ def build_user_prompt(payload: dict[str, Any]) -> str:
         f"{json.dumps(context.get('review_plan', {}), indent=2)}\n\n"
         "Return one JSON object only. Use passed=false if you find any additional semantic issue. "
         "Each issue must identify code, scene_num, message, an editable review_plan field, suggested_change, and "
-        "evidence as an object with observed, expected, and source strings. Do not review fields absent from review_plan."
+        "replacement_value containing the exact complete value to insert into that one field, plus evidence as an "
+        "object with observed, expected, and source strings. Review the whole story like a human editor, but emit only "
+        "targeted field edits—never regenerate the complete plan and never include unchanged scenes. Check lyric speaker "
+        "and meaning, setup-development-payoff, redundant beats, character motivation/plurality, world geography, "
+        "emotional progression, visual-versus-audio actions, camera motivation, cut continuity, and agreement among "
+        "scene_goal, lyric_interpretation, setting, action, and camera. Do not review fields absent from review_plan."
     )
 
 

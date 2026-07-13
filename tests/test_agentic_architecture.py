@@ -456,6 +456,7 @@ class AgenticArchitectureTests(unittest.TestCase):
                                 "source": "review_contract.prompt_generatability",
                             },
                             "suggested_change": "use one eye-level tracking direction",
+                            "replacement_value": "Camera tracks gently at child-eye level",
                         }],
                         "scores": {"prompt_generatability": 1.4, "lyric_alignment": "0.8", "bad": "unknown"},
                         "revision_notes": ["  Resolve the camera field.  "],
@@ -468,6 +469,10 @@ class AgenticArchitectureTests(unittest.TestCase):
 
         self.assertEqual(report["issues"][0]["code"], "camera_conflict")
         self.assertEqual(report["issues"][0]["scene_num"], 1)
+        self.assertEqual(
+            report["targeted_revision"]["scene_revisions"][0]["replacement_value"],
+            "Camera tracks gently at child-eye level",
+        )
         self.assertEqual(report["scores"], {"prompt_generatability": 1.0, "lyric_alignment": 0.8})
         self.assertEqual(report["revision_notes"], ["Resolve the camera field"])
 
@@ -548,6 +553,51 @@ class AgenticArchitectureTests(unittest.TestCase):
         self.assertTrue(report["passed"])
         self.assertEqual(report["issues"], [])
         self.assertEqual(report["warnings"][0]["code"], "prompt_hygiene")
+
+    def test_semantic_reviewer_applies_targeted_field_patch_without_full_replan(self):
+        decision = self._structured_decision(["The fox waves to the moon"], character_label="fox")
+        decision["scenes"][0]["action"] = "the fox sits without reacting"
+
+        class OneShotSemanticReviewer:
+            def __init__(self):
+                self.calls = 0
+
+            def generate_json(self, prompt, schema, context):
+                self.calls += 1
+                if self.calls > 1:
+                    return {"passed": True, "issues": [], "scores": {}, "revision_notes": []}
+                return {
+                    "passed": False,
+                    "issues": [{
+                        "code": "lyric_alignment",
+                        "scene_num": 1,
+                        "field": "action",
+                        "message": "the fox never performs the lyric's greeting",
+                        "evidence": {
+                            "observed": "the fox sits without reacting",
+                            "expected": "the fox waves to the moon",
+                            "source": "review_contract.lyric_alignment",
+                        },
+                        "suggested_change": "replace only the action with a visible wave",
+                        "replacement_value": "the fox smiles and waves one paw toward the moon",
+                    }],
+                    "scores": {"lyric_alignment": 0.4},
+                    "revision_notes": ["Target scene 1 action only"],
+                }
+
+        reviewer_backend = OneShotSemanticReviewer()
+        planner = PromptPlannerAgent(
+            MockAgentBackend(responses={"planner": decision}),
+            critic=PlanCriticAgent(reviewer_backend),
+            max_plan_revisions=2,
+        )
+
+        plan = planner.plan(NurseryRhymeInput(topic_or_name="original moon greeting"))
+
+        self.assertTrue(validate_plan_semantics(plan)["passed"])
+        self.assertEqual(plan.scenes[0].action, "the fox smiles and waves one paw toward the moon")
+        self.assertEqual(reviewer_backend.calls, 2)
+        self.assertTrue(any(step.get("source") == "PlanCriticAgent" for step in planner.agent_steps))
 
     def test_consecutive_identical_staging_requires_revision(self):
         decision = self._structured_decision(["Line one", "Line two"])
