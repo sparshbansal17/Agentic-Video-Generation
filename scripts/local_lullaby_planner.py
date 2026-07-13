@@ -49,6 +49,11 @@ def build_user_prompt(payload: dict[str, Any]) -> str:
                 "gently lowers, floating gently, caught safely, lands safely, or settles safely.\n"
                 "- Remove all remaining hazardous wording from setting, subjects, action, lyric_interpretation, "
                 "camera, style, and safety_adaptation; do not leave unsafe wording and merely add a negation later.\n"
+                "- Do not use fall, falls, falling, drop, break, crash, impact, or synonyms anywhere in replacement "
+                "values, even if modified by gently/safely or followed by being caught. The depicted motion itself must "
+                "be different, such as remaining securely supported, swaying in place, or floating horizontally.\n"
+                "- Patch the editable structured fields action, lyric_interpretation, setting, subjects, camera, and "
+                "safety_adaptation as needed; never patch the derived description field.\n"
             )
         diversity_instruction = ""
         if "repeated_scene_staging" in issue_codes:
@@ -59,12 +64,21 @@ def build_user_prompt(payload: dict[str, Any]) -> str:
                 "and a different camera composition from matches_scene_num.\n"
                 "- Preserve character identity and the supplied lyric; do not return the previous scene unchanged.\n"
             )
+        camera_instruction = ""
+        if "repeated_camera_coverage" in issue_codes:
+            camera_instruction = (
+                "\nCRITICAL CAMERA-COVERAGE REVISION REQUIRED:\n"
+                "- Edit the camera field of every cited scene. The replacement must not equal the current camera text.\n"
+                "- Change the actual coverage: choose a motivated wide establishing view, close-up reaction/detail, "
+                "low child-eye angle, overhead composition, gentle reveal, or another clearly different shot size/angle.\n"
+                "- Do not merely rephrase the same medium/static/tracking shot. Keep at most one simple movement.\n"
+            )
         revision_block = (
             "\nThis is a revision request. Fix every validation issue below by returning a complete replacement "
             "planner decision JSON. Preserve supplied lyrics exactly and edit the structured scene descriptions, "
             "camera fields, characters, and continuity fields before prompt compilation.\n"
             f"Validation issues JSON:\n{json.dumps(validation_issues, indent=2)}\n"
-            f"{unsafe_instruction}{diversity_instruction}\n"
+            f"{unsafe_instruction}{diversity_instruction}{camera_instruction}\n"
             "GENERAL CORRECTION CONTRACT:\n"
             "- Treat every issue object, regardless of code, as a binding acceptance criterion.\n"
             "- Use scene_num to edit the affected scene and use field/evidence/message to determine the required change.\n"
@@ -78,6 +92,11 @@ def build_user_prompt(payload: dict[str, Any]) -> str:
             "The patch shape is: {\"scene_revisions\": [{\"scene_num\": 1, \"field_to_change\": "
             "\"replacement value\"}], \"plan_updates\": {}}. Include every field needed to resolve each issue, "
             "but do not include unchanged scenes or explanatory prose. Preserve lyrics and character identity.\n"
+            "field_to_change MUST be one of: scene_goal, lyric_interpretation, setting, subjects, action, camera, "
+            "style, safety_adaptation, selected_characters, expected_mood, boundary_behavior, cut. Never patch "
+            "description, video_prompt, first_frame_prompt, lyric_line, subtitle text, or other derived fields because "
+            "they are compiled later and the patch will be ignored. Use multiple patch entries when several structured "
+            "fields or scenes must change.\n"
             f"{revision_block}\n"
             "Return only the JSON patch. Verify that each replacement differs from previous_decision and directly "
             "satisfies the corresponding issue message and evidence."
@@ -203,7 +222,13 @@ def validate_decision(decision: dict[str, Any]) -> None:
             raise ValueError(f"scene {index} missing required structured fields: {', '.join(missing_scene)}")
 
 
-def generate_with_transformers(model_name: str, user_prompt: str, max_new_tokens: int) -> str:
+def generate_with_transformers(
+    model_name: str,
+    user_prompt: str,
+    max_new_tokens: int,
+    *,
+    sample: bool = False,
+) -> str:
     import torch
     from transformers import AutoProcessor, Qwen2VLForConditionalGeneration
 
@@ -229,9 +254,9 @@ def generate_with_transformers(model_name: str, user_prompt: str, max_new_tokens
     generated = model.generate(
         **inputs,
         max_new_tokens=max_new_tokens,
-        do_sample=False,
-        temperature=None,
-        top_p=None,
+        do_sample=sample,
+        temperature=0.65 if sample else None,
+        top_p=0.9 if sample else None,
     )
     prompt_len = inputs["input_ids"].shape[-1]
     output_ids = generated[:, prompt_len:]
@@ -247,7 +272,8 @@ def main() -> int:
 
     payload = json.loads(sys.stdin.read())
     user_prompt = build_user_prompt(payload)
-    raw = generate_with_transformers(args.model, user_prompt, args.max_new_tokens)
+    is_revision = bool(payload.get("context", {}).get("validation_issues"))
+    raw = generate_with_transformers(args.model, user_prompt, args.max_new_tokens, sample=is_revision)
     if args.debug_output:
         with open(args.debug_output, "w", encoding="utf-8") as handle:
             handle.write(raw)
