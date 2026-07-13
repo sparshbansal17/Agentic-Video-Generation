@@ -776,7 +776,21 @@ def validate_plan_semantics(plan: ProductionPlan, *, require_reviewer_approval: 
             if _character_lookup_key(profile.label).replace("_", " ") in visible_text
             and _character_lookup_key(profile.label) not in selected_labels
         ]
-        if missing_profiles:
+        if missing_profiles and len(selected_labels) + len(missing_profiles) > 3:
+            issues.append(
+                {
+                    "code": "overcrowded_five_second_shot",
+                    "scene_num": scene.scene_num,
+                    "field": "selected_characters",
+                    "message": "the scene names more than three visible bank characters; simplify the cast and all references together",
+                    "evidence": {
+                        "observed": json.dumps(sorted(selected_labels | {_character_lookup_key(p.label) for p in missing_profiles})),
+                        "expected": "one to three lyric-relevant visible characters",
+                        "source": "setting, subjects, action, and selected_characters",
+                    },
+                }
+            )
+        elif missing_profiles:
             replacement = [dict(item) for item in scene.selected_characters if isinstance(item, dict)]
             replacement.extend(
                 {
@@ -1105,7 +1119,7 @@ def _normalize_critic_issue(issue: Any, index: int) -> dict[str, Any]:
             normalized[key] = issue[key]
     field = normalized.get("field")
     replacement = normalized.get("replacement_value")
-    if isinstance(field, str) and isinstance(replacement, dict) and set(replacement) == {field}:
+    if isinstance(field, str) and isinstance(replacement, dict) and field in replacement:
         normalized["replacement_value"] = replacement[field]
     evidence = normalized.get("evidence")
     if isinstance(field, str) and isinstance(evidence, dict) and not evidence.get("observed") and evidence.get(field):
