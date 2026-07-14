@@ -969,53 +969,43 @@ def run_workflow(
                 }
                 write_json(latest_paths["iteration_dir"] / "audio_postprocess_result.json", audio_result)
             if _needs_scene_lyrics_audio_fallback(full_song_alignment):
-                fallback_record = {
+                failure_record = {
                     "reason": "full_song_lyric_or_timing_failure",
                     "full_song_alignment": full_song_alignment,
-                    "previous_audio_postprocess": audio_result,
-                    "allow_scene_mix_debug": allow_scene_mix_debug,
+                    "retained_full_song_media": audio_result.get("selected_full_song_media", str(final_candidate)),
+                    "policy": "retain_best_one_take_for_review_and_regenerate_one_take_next_iteration",
                 }
-                write_json(latest_paths["iteration_dir"] / "full_song_audio_fallback.json", fallback_record)
+                write_json(latest_paths["iteration_dir"] / "full_song_generation_failure.json", failure_record)
                 write_json(latest_paths["iteration_dir"] / "whisperx_full_song_alignment.json", full_song_alignment)
-                if not allow_scene_mix_debug:
-                    song_spec_path = Path(str(audio_result.get("song_spec_path") or ""))
-                    if song_spec_path.exists():
-                        song_spec = SongSpec.from_dict(json.loads(song_spec_path.read_text(encoding="utf-8")))
-                        candidate_records = audio_result.get("full_song_candidate_attempts") or [
-                            {"candidate": 0, "seed_offset": 0, "alignment": full_song_alignment, "media_output": str(final_candidate)}
-                        ]
-                        candidates = [
-                            AudioCandidate(
-                                candidate_id=f"candidate_{int(item.get('candidate', 0)):02d}",
-                                backend=audio_voice_backend,
-                                model_version="configured-runtime",
-                                seed=seed + int(item.get("seed_offset", 0)),
-                                media_path=str(item.get("media_output", "")),
-                                alignment=dict(item.get("alignment") or {}),
-                                technical_metrics={"passed": True},
-                                passed=bool((item.get("alignment") or {}).get("passed")),
-                            )
-                            for item in candidate_records
-                        ]
-                        write_json(
-                            latest_paths["iteration_dir"] / "audio_candidate_manifest.json",
-                            candidate_manifest(song_spec, candidates),
+                song_spec_path = Path(str(audio_result.get("song_spec_path") or ""))
+                if song_spec_path.exists():
+                    song_spec = SongSpec.from_dict(json.loads(song_spec_path.read_text(encoding="utf-8")))
+                    candidate_records = audio_result.get("full_song_candidate_attempts") or [
+                        {"candidate": 0, "seed_offset": 0, "alignment": full_song_alignment, "media_output": str(final_candidate)}
+                    ]
+                    candidates = [
+                        AudioCandidate(
+                            candidate_id=f"candidate_{int(item.get('candidate', 0)):02d}",
+                            backend=audio_voice_backend,
+                            model_version="configured-runtime",
+                            seed=seed + int(item.get("seed_offset", 0)),
+                            media_path=str(item.get("media_output", "")),
+                            alignment=dict(item.get("alignment") or {}),
+                            technical_metrics={"passed": True},
+                            passed=bool((item.get("alignment") or {}).get("passed")),
                         )
-                    raise RuntimeError(
-                        "audio_generation_failed: no whole-song candidate preserved exact lyrics and fixed video timing; "
-                        "failed candidates are not publishable (use --allow-scene-mix-debug only for diagnostics)"
+                        for item in candidate_records
+                    ]
+                    write_json(
+                        latest_paths["iteration_dir"] / "audio_candidate_manifest.json",
+                        candidate_manifest(song_spec, candidates),
                     )
-                current_media_audio_mode = "hybrid_voice_bed" if media_audio_mode == "hybrid_voice_bed" else "scene_lyrics_mix"
-                if audio_voice_backend in {"ace_step", "ace_step_full_song"}:
-                    audio_voice_backend = "ace_step" if ace_step_cmd else "f5_tts"
-                if audio_music_backend in {"ace_step", "ace_step_full_song"}:
-                    audio_music_backend = "ace_step" if ace_step_cmd else "musicgen"
-                audio_result = render_audio_candidate(current_media_audio_mode, seed_offset=503)
-                if audio_result.get("media_output"):
-                    final_candidate = Path(str(audio_result["media_output"]))
-                audio_result["fallback_from_full_song"] = fallback_record
+                audio_result["one_take_status"] = "failed_review"
+                audio_result["retained_full_song_media"] = audio_result.get(
+                    "selected_full_song_media", str(final_candidate)
+                )
+                audio_result["scene_mix_fallback"] = "disabled"
                 write_json(latest_paths["iteration_dir"] / "audio_postprocess_result.json", audio_result)
-                run_audio_alignment(final_candidate, "whisperx_scene_lyrics_mix")
 
         if (
             mode in {"generate", "iterate"}

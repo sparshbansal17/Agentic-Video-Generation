@@ -15,9 +15,8 @@ Generated attempts are recorded as `AudioCandidate` entries in `audio_candidate_
 3. Gate candidates in this order: immutable lyrics, fixed timing, technical quality, then story/music fit.
 4. Repaint failed lyric regions with surrounding musical context for at most two rounds.
 5. Benchmark SongGeneration 2 through the same backend-neutral contract.
-6. If whole-song models cannot satisfy correctness, use note-conditioned singing plus vocal-to-accompaniment generation. Spoken TTS and independently generated song fragments are not production fallbacks.
-
-The legacy scene mix is available only with `--allow-scene-mix-debug`; it is diagnostic and must not be published.
+6. If no candidate passes, retain the best complete take for review, mark the run failed, and generate another complete-take batch on the next iteration.
+7. A future deterministic fallback may use note-conditioned singing plus vocal-to-accompaniment generation, but it must still render one continuous take. Spoken TTS, independently generated song fragments, and scene mixing are prohibited.
 
 ## Review Policy
 

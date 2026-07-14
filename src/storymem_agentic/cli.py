@@ -231,7 +231,11 @@ def build_parser() -> argparse.ArgumentParser:
         command.add_argument("--song-cmd")
         command.add_argument("--voice-ref-audio")
         command.add_argument("--voice-ref-text")
-        command.add_argument("--allow-scene-mix-debug", action="store_true")
+        command.add_argument(
+            "--allow-scene-mix-debug",
+            action="store_true",
+            help=argparse.SUPPRESS,  # deprecated compatibility flag; scene mixing is disabled
+        )
         command.add_argument("--full-song-candidates", type=int, default=8)
         command.add_argument("--voice-candidates", type=int, default=4)
         command.add_argument("--music-candidates", type=int, default=1)
