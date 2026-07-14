@@ -55,6 +55,16 @@ class AlignmentTests(unittest.TestCase):
         self.assertIn("line_1_omitted_repeated_twinkle_1_of_2", result["failure_reasons"])
         self.assertIn("line_1_final_line_incomplete", result["failure_reasons"])
 
+    def test_one_observation_cannot_satisfy_two_overlapping_lines(self):
+        lines = line_timestamps(
+            ["star", "star"],
+            [{"word": "star", "start": 1.0, "end": 1.4}],
+            [(0.0, 2.0), (1.0, 3.0)],
+        )
+
+        self.assertEqual(lines[0]["matched_word_count"], 1)
+        self.assertEqual(lines[1]["matched_word_count"], 0)
+
     def test_empty_alignment_is_pending_failure(self):
         result = analyze_whisperx_alignment(["Hush now"], [(0.0, 2.0)], [])
 

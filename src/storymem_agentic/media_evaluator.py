@@ -9,6 +9,7 @@ except ImportError:  # pragma: no cover - exercised only in minimal test environ
     cv2 = None
 
 from .alignment import analyze_whisperx_alignment, load_whisperx_words
+from .audio_quality import probe_audio_quality
 from .review_agents import ModelReviewConfig, model_review_reports
 from .schemas import EvaluationReport, ProductionPlan, ReviewerReport, SceneEvaluation
 
@@ -51,6 +52,7 @@ def evaluate_iteration(
     strict_lullaby_review: bool = True,
     review_backend: str = "mock",
     vlm_command: str | None = None,
+    audio_review_command: str | None = None,
     review_frames_dir: str | Path | None = None,
 ) -> EvaluationReport:
     root = Path(generated_dir)
@@ -87,6 +89,31 @@ def evaluate_iteration(
             },
         )
     ]
+    if not dry_run and final_video_path.exists():
+        technical = probe_audio_quality(
+            final_video_path,
+            expected_duration_seconds=planned_duration,
+            ffmpeg_bin=ffmpeg_bin,
+        )
+        reviewer_reports.append(
+            ReviewerReport(
+                reviewer="AudioTechnicalGate",
+                passed=bool(technical["passed"]),
+                scores={
+                    "duration_match": 0.0
+                    if "audio_duration_out_of_tolerance" in technical["failure_reasons"]
+                    else 1.0,
+                    "audible": 0.0
+                    if "audio_effectively_silent" in technical["failure_reasons"]
+                    else 1.0,
+                    "peak_safe": 0.0
+                    if "audio_clipping_risk" in technical["failure_reasons"]
+                    else 1.0,
+                },
+                failure_reasons=list(technical["failure_reasons"]),
+                evidence=dict(technical["metrics"]),
+            )
+        )
 
     scene_reports = []
     regeneration_targets = []
@@ -207,6 +234,7 @@ def evaluate_iteration(
                 vlm_command=vlm_command,
                 ffmpeg_bin=ffmpeg_bin,
                 strict_lullaby_review=strict_lullaby_review,
+                audio_command=audio_review_command,
             ),
             artifact_checks=artifact_checks,
             streams=streams,
@@ -279,6 +307,7 @@ def evaluate_iteration(
             "missing_observed_lyrics",
             "wer_above_threshold",
             "model_review_failed",
+            "review_infrastructure_error",
         }
         audio_only = True
         for reason in failure_reasons:

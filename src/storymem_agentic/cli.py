@@ -114,6 +114,7 @@ def workflow(args: argparse.Namespace) -> int:
         plan_validation_policy=args.plan_validation_policy,
         review_backend=args.review_backend,
         vlm_command=args.vlm_command,
+        audio_review_command=args.audio_review_command,
         whisperx_command=args.whisperx_command,
         audio_aligner=args.audio_aligner,
         strict_lullaby_review=args.strict_lullaby_review,
@@ -213,6 +214,7 @@ def build_parser() -> argparse.ArgumentParser:
         command.add_argument("--review-backend", choices=["mock", "command"], default="mock")
         command.add_argument("--allow-mock-review", action="store_true")
         command.add_argument("--vlm-command")
+        command.add_argument("--audio-review-command", help="Audio/video-capable reviewer command, e.g. Qwen2.5-Omni")
         command.add_argument("--whisperx-command")
         command.add_argument("--audio-aligner", choices=["whisperx", "none"], default="whisperx")
         command.add_argument("--strict-lullaby-review", action=argparse.BooleanOptionalAction, default=True)
@@ -230,7 +232,7 @@ def build_parser() -> argparse.ArgumentParser:
         command.add_argument("--voice-ref-audio")
         command.add_argument("--voice-ref-text")
         command.add_argument("--allow-scene-mix-debug", action="store_true")
-        command.add_argument("--full-song-candidates", type=int, default=4)
+        command.add_argument("--full-song-candidates", type=int, default=8)
         command.add_argument("--voice-candidates", type=int, default=4)
         command.add_argument("--music-candidates", type=int, default=1)
         command.add_argument("--storymem-dir")

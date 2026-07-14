@@ -5,6 +5,14 @@ from typing import Any, Literal
 
 AudioMode = Literal["voice_bed", "full_song"]
 RunMode = Literal["dry_run", "generate", "iterate"]
+TimingAuthority = Literal["video", "audio", "hybrid"]
+AudioRepairKind = Literal[
+    "repaint_region",
+    "regenerate_song",
+    "regenerate_accompaniment",
+    "adjust_mix",
+    "hard_fail",
+]
 
 
 def quantize_seconds(value: float, fps: int = 24) -> float:
@@ -282,6 +290,125 @@ class AudioLinePlan:
     @property
     def duration_seconds(self) -> float:
         return max(0.0, self.end_seconds - self.start_seconds)
+
+
+@dataclass(slots=True)
+class SongLineSpec:
+    index: int
+    text: str
+    scene_num: int
+    start_seconds: float
+    end_seconds: float
+    syllable_count: int
+
+
+@dataclass(slots=True)
+class SongSpec:
+    """Versioned, backend-neutral contract for video-first song generation."""
+
+    version: str
+    timing_authority: TimingAuthority
+    duration_seconds: float
+    lyrics: list[str]
+    lines: list[SongLineSpec]
+    caption: str
+    bpm: int = 72
+    key_scale: str = "C major"
+    time_signature: str = "3/4"
+    vocal_style: str = "warm clear gentle nursery singing"
+    structure: list[str] = field(default_factory=lambda: ["verse", "outro"])
+    max_boundary_drift_seconds: float = 0.35
+    minimum_lyric_coverage: float = 0.98
+
+    def validate(self) -> None:
+        if self.timing_authority not in {"video", "audio", "hybrid"}:
+            raise ValueError(f"unsupported timing authority: {self.timing_authority}")
+        if self.duration_seconds <= 0:
+            raise ValueError("song duration must be positive")
+        if not self.lyrics or not self.lines:
+            raise ValueError("song spec requires lyrics and timed lines")
+        if not 30 <= self.bpm <= 300:
+            raise ValueError("song BPM must be between 30 and 300")
+        previous_end = -1.0
+        for line in self.lines:
+            if not line.text.strip() or line.syllable_count <= 0:
+                raise ValueError(f"song line {line.index} is empty")
+            if line.start_seconds < previous_end - 0.001 or line.end_seconds <= line.start_seconds:
+                raise ValueError("song line windows must be positive and monotonic")
+            if line.end_seconds > self.duration_seconds + 0.001:
+                raise ValueError(f"song line {line.index} exceeds song duration")
+            previous_end = line.end_seconds
+
+    def to_dict(self) -> dict[str, Any]:
+        self.validate()
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "SongSpec":
+        spec = cls(
+            version=str(data.get("version", "2.0")),
+            timing_authority=data.get("timing_authority", "video"),
+            duration_seconds=float(data["duration_seconds"]),
+            lyrics=[str(item) for item in data.get("lyrics", [])],
+            lines=[SongLineSpec(**item) for item in data.get("lines", [])],
+            caption=str(data.get("caption", "")),
+            bpm=int(data.get("bpm", 72)),
+            key_scale=str(data.get("key_scale", "C major")),
+            time_signature=str(data.get("time_signature", "3/4")),
+            vocal_style=str(data.get("vocal_style", "warm clear gentle nursery singing")),
+            structure=list(data.get("structure", ["verse", "outro"])),
+            max_boundary_drift_seconds=float(data.get("max_boundary_drift_seconds", 0.35)),
+            minimum_lyric_coverage=float(data.get("minimum_lyric_coverage", 0.98)),
+        )
+        spec.validate()
+        return spec
+
+
+@dataclass(slots=True)
+class AudioRepairAction:
+    kind: AudioRepairKind
+    reason: str
+    start_seconds: float | None = None
+    end_seconds: float | None = None
+    target_lines: list[int] = field(default_factory=list)
+    parameter_changes: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
+class AudioCandidate:
+    candidate_id: str
+    backend: str
+    model_version: str
+    seed: int
+    media_path: str
+    parameters: dict[str, Any] = field(default_factory=dict)
+    alignment: dict[str, Any] = field(default_factory=dict)
+    technical_metrics: dict[str, float | bool | None] = field(default_factory=dict)
+    context_scores: dict[str, float] = field(default_factory=dict)
+    repairs: list[AudioRepairAction] = field(default_factory=list)
+    passed: bool = False
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(slots=True)
+class AudioReviewReport:
+    version: str
+    passed: bool
+    content_status: str
+    infrastructure_status: str = "ok"
+    lyric_scores: dict[str, float] = field(default_factory=dict)
+    timing_scores: dict[str, float] = field(default_factory=dict)
+    music_quality_scores: dict[str, float] = field(default_factory=dict)
+    context_scores: dict[str, float] = field(default_factory=dict)
+    mix_scores: dict[str, float] = field(default_factory=dict)
+    failure_reasons: list[str] = field(default_factory=list)
+    repair_actions: list[AudioRepairAction] = field(default_factory=list)
+    evidence: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
 
 
 @dataclass(slots=True)

@@ -62,7 +62,11 @@ def build_revision_plan(plan: ProductionPlan, report: EvaluationReport) -> Revis
         if any(dep in failed for dep in scene.regeneration_dependencies):
             failed.add(scene.scene_num)
 
-    failed_reviewers = {item.reviewer for item in report.reviewer_reports if not item.passed}
+    failed_reviewers = {
+        item.reviewer
+        for item in report.reviewer_reports
+        if not item.passed and "review_infrastructure_error" not in item.failure_reasons
+    }
     whisperx_failed = "WhisperXLyricTimingAgent" in failed_reviewers
     audio_failed = bool({"AudioReviewAgent", "AudioArtifactReviewAgent", "AudioVisualSyncReviewAgent", "WhisperXLyricTimingAgent"} & failed_reviewers)
     visual_or_artifact_failed = bool(failed_reviewers - {
@@ -166,7 +170,6 @@ def apply_revision_plan(plan: ProductionPlan, revision: RevisionPlan) -> Product
 
     if revision.clip_duration_adjustments:
         start = 0.0
-        by_scene = {scene.scene_num: scene for scene in revised.scenes}
         by_segment = {segment.index: segment for segment in revised.lyric_segments}
         for scene in revised.scenes:
             key = str(scene.scene_num)

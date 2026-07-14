@@ -43,7 +43,7 @@ def wrapper_env(tools_dir: str | Path) -> dict[str, str]:
 
 def candidate_defaults() -> dict[str, int]:
     return {
-        "ace_step_full_song": 4,
+        "ace_step_full_song": 8,
         "ace_step": 4,
         "f5_tts": 4,
         "cosyvoice": 4,

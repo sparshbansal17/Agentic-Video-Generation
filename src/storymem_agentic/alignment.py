@@ -139,11 +139,39 @@ def line_timestamps(
 ) -> list[dict[str, Any]]:
     observed_tokens = normalized_word_tokens(aligned_words)
     output = []
+    global_cursor = 0
     for index, line in enumerate(reference_lines, start=1):
         wanted = words(line)
         window = planned_windows[index - 1] if planned_windows and index <= len(planned_windows) else None
-        candidates = _tokens_for_window(observed_tokens, window, window_tolerance_seconds)
-        matched_tokens = _ordered_line_match_tokens(wanted, candidates)
+        indexed_candidates = list(enumerate(observed_tokens[global_cursor:], start=global_cursor))
+        if window is not None:
+            start, end = window
+            window_start = start - window_tolerance_seconds
+            window_end = end + window_tolerance_seconds
+            indexed_candidates = [
+                (token_index, token_item)
+                for token_index, token_item in indexed_candidates
+                if (
+                    _token_seconds(token_item[1])[0] is None
+                    or _token_seconds(token_item[1])[1] is None
+                    or (
+                        _token_seconds(token_item[1])[1] >= window_start
+                        and _token_seconds(token_item[1])[0] <= window_end
+                    )
+                )
+            ]
+        cursor = 0
+        indexed_matches: list[tuple[int, tuple[str, dict[str, Any]]]] = []
+        for wanted_word in wanted:
+            for candidate_index in range(cursor, len(indexed_candidates)):
+                token_index, token_item = indexed_candidates[candidate_index]
+                if token_item[0] == wanted_word:
+                    indexed_matches.append((token_index, token_item))
+                    cursor = candidate_index + 1
+                    break
+        matched_tokens = [item for _, item in indexed_matches]
+        if indexed_matches:
+            global_cursor = indexed_matches[-1][0] + 1
         matched = [item for _, item in matched_tokens]
         timing_items = _timing_items(matched)
         starts = [float(item["start"]) for item in timing_items if "start" in item]

@@ -119,30 +119,8 @@ def _audio_style_prompt(story: dict, config: AudioConfig) -> str:
     for i, summary in enumerate(_scene_summaries(story), start=1):
         compact = " ".join(summary.split())
         scene_notes.append(f"scene {i}: {compact[:95]}")
-    lyric_lines = [
-        str(scene.get("lyric_line", "")).strip()
-        for scene in story.get("scenes", [])
-        if str(scene.get("lyric_line", "")).strip()
-    ]
     metadata = story.get("agentic_metadata", {})
     plan_music_prompt = _dedupe_sentences(str(metadata.get("music_prompt", "")).strip())
-    exact_lyrics = "\n".join(f"{i}. {line}" for i, line in enumerate(lyric_lines, start=1))
-    timing_windows = []
-    for i, scene in enumerate(story.get("scenes", [])[:len(lyric_lines)], start=1):
-        if scene.get("planned_start_seconds") is not None and scene.get("planned_end_seconds") is not None:
-            timing_windows.append(
-                f"{i}. {float(scene['planned_start_seconds']):.3f}-{float(scene['planned_end_seconds']):.3f}s"
-            )
-    repeated_warnings = _repeated_word_warnings(lyric_lines)
-    required = (
-        "EXACT NUMBERED LYRICS - immutable, sing every written word in order:\n"
-        f"{exact_lyrics}\n"
-        "PER-LINE TIMING WINDOWS:\n"
-        f"{chr(10).join(timing_windows) if timing_windows else 'Use the full video duration in lyric order.'}\n"
-        "REPEATED-WORD CONSTRAINTS:\n"
-        f"{chr(10).join(repeated_warnings) if repeated_warnings else 'No repeated words requiring special handling.'}\n"
-        "BACKEND INSTRUCTION: do not omit, merge, paraphrase, reorder, or replace words; repeated words must be separately audible."
-    )
     style = (
         f"STYLE/TONE: {DEFAULT_STYLE_PROMPT}, voice feel: {config.audio_voice_style}, "
         f"planner audio direction: {plan_music_prompt}."
@@ -152,17 +130,14 @@ def _audio_style_prompt(story: dict, config: AudioConfig) -> str:
         "gentle lift over the sleeping world, sparkling highlight, and peaceful goodnight cadence, "
     )
     scene_context = scene_prefix + ", ".join(scene_notes)
-    remaining = MAX_AUDIO_PROMPT_CHARS - len(required) - len(style) - 8
+    remaining = MAX_AUDIO_PROMPT_CHARS - len(style) - 8
     if remaining > 80:
         scene_context = scene_context[:remaining]
     else:
         scene_context = ""
-    prompt = (
-        required
-        + "\n"
-        + style
-        + ("\n" + scene_context if scene_context else "")
-    )
+    # Lyrics and timing are separate structured inputs. Duplicating them in the
+    # style caption reduces adherence and lets backend caption rewriters alter words.
+    prompt = style + ("\n" + scene_context if scene_context else "")
     return prompt
 
 
@@ -708,6 +683,7 @@ def generate_audio_for_story(config: AudioConfig) -> Path | None:
     values = {
         "lyrics_file": str(lyrics_path),
         "prompt_file": str(prompt_path),
+        "song_spec_file": str(work_dir / "song_spec.json"),
         "style_prompt": _audio_style_prompt(story, config),
         "duration": f"{duration:.3f}",
         "seed": str(config.seed),

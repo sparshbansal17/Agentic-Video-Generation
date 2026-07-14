@@ -30,7 +30,7 @@ class AudioPlanTests(unittest.TestCase):
         self.assertFalse(report["alignment"]["passes_wer"])
         self.assertIn("missing_observed_lyrics", report["alignment"]["failure_reasons"])
 
-    def test_audio_prompt_preserves_exact_lyrics_and_repeated_warning_under_truncation(self):
+    def test_audio_prompt_keeps_lyrics_out_of_style_caption(self):
         story = {
             "story_name": "twinkle",
             "story_overview": "x" * 5000,
@@ -47,9 +47,8 @@ class AudioPlanTests(unittest.TestCase):
 
         prompt = _audio_style_prompt(story, AudioConfig("story.json", "out"))
 
-        self.assertIn("1. Twinkle, twinkle, little star", prompt)
-        self.assertIn("20.000-25.000s", prompt)
-        self.assertIn('"Twinkle" appears 2 times', prompt)
+        self.assertNotIn("Twinkle, twinkle, little star", prompt)
+        self.assertNotIn("20.000-25.000s", prompt)
         self.assertEqual(prompt.count("plinky_unique"), 1)
 
     def test_repeated_word_omission_fails_manifest_evaluation(self):

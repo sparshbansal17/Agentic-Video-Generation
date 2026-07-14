@@ -17,7 +17,8 @@ from .media_evaluator import evaluate_iteration
 from .mixer import build_mix_manifest, write_mix_manifest
 from .planner import PlanCriticAgent, PromptPlannerAgent, build_visual_bible, validate_plan_semantics
 from .runner import run_audio_postprocess
-from .schemas import EvaluationReport, NurseryRhymeInput, ProductionPlan, RevisionPlan, SceneHint
+from .schemas import AudioCandidate, EvaluationReport, NurseryRhymeInput, ProductionPlan, RevisionPlan, SceneHint, SongSpec
+from .song_pipeline import candidate_manifest
 from .story_writer import rhyme_text_from_plan, story_from_plan, storymem_script_from_plan
 
 
@@ -513,6 +514,7 @@ def run_workflow(
     plan_validation_policy: str = "block",
     review_backend: str = "mock",
     vlm_command: str | None = None,
+    audio_review_command: str | None = None,
     whisperx_command: str | None = None,
     audio_aligner: str = "whisperx",
     strict_lullaby_review: bool = True,
@@ -530,7 +532,7 @@ def run_workflow(
     voice_ref_audio: str | None = None,
     voice_ref_text: str | None = None,
     allow_scene_mix_debug: bool = False,
-    full_song_candidate_count: int = 4,
+    full_song_candidate_count: int = 8,
     voice_candidate_count: int = 4,
     music_candidate_count: int = 1,
 ) -> dict[str, Any]:
@@ -910,7 +912,7 @@ def run_workflow(
                         "media_output": str(best_media),
                     }
                 ]
-                for candidate, retry_seed_offset in enumerate([1601, 3203, 4801, 6407, 8009], start=1):
+                for candidate, retry_seed_offset in enumerate([1601, 3203, 4801, 6407, 8009, 9613, 11213], start=1):
                     if candidate >= full_song_candidate_count:
                         break
                     shutil.rmtree(latest_paths["generated_dir"] / "audio", ignore_errors=True)
@@ -958,13 +960,41 @@ def run_workflow(
                 write_json(latest_paths["iteration_dir"] / "audio_postprocess_result.json", audio_result)
             if _needs_scene_lyrics_audio_fallback(full_song_alignment):
                 fallback_record = {
-                    "reason": "full_song_whisperx_timing_failure",
+                    "reason": "full_song_lyric_or_timing_failure",
                     "full_song_alignment": full_song_alignment,
                     "previous_audio_postprocess": audio_result,
                     "allow_scene_mix_debug": allow_scene_mix_debug,
                 }
                 write_json(latest_paths["iteration_dir"] / "full_song_audio_fallback.json", fallback_record)
                 write_json(latest_paths["iteration_dir"] / "whisperx_full_song_alignment.json", full_song_alignment)
+                if not allow_scene_mix_debug:
+                    song_spec_path = Path(str(audio_result.get("song_spec_path") or ""))
+                    if song_spec_path.exists():
+                        song_spec = SongSpec.from_dict(json.loads(song_spec_path.read_text(encoding="utf-8")))
+                        candidate_records = audio_result.get("full_song_candidate_attempts") or [
+                            {"candidate": 0, "seed_offset": 0, "alignment": full_song_alignment, "media_output": str(final_candidate)}
+                        ]
+                        candidates = [
+                            AudioCandidate(
+                                candidate_id=f"candidate_{int(item.get('candidate', 0)):02d}",
+                                backend=audio_voice_backend,
+                                model_version="configured-runtime",
+                                seed=seed + int(item.get("seed_offset", 0)),
+                                media_path=str(item.get("media_output", "")),
+                                alignment=dict(item.get("alignment") or {}),
+                                technical_metrics={"passed": True},
+                                passed=bool((item.get("alignment") or {}).get("passed")),
+                            )
+                            for item in candidate_records
+                        ]
+                        write_json(
+                            latest_paths["iteration_dir"] / "audio_candidate_manifest.json",
+                            candidate_manifest(song_spec, candidates),
+                        )
+                    raise RuntimeError(
+                        "audio_generation_failed: no whole-song candidate preserved exact lyrics and fixed video timing; "
+                        "failed candidates are not publishable (use --allow-scene-mix-debug only for diagnostics)"
+                    )
                 current_media_audio_mode = "hybrid_voice_bed" if media_audio_mode == "hybrid_voice_bed" else "scene_lyrics_mix"
                 if audio_voice_backend in {"ace_step", "ace_step_full_song"}:
                     audio_voice_backend = "ace_step" if ace_step_cmd else "f5_tts"
@@ -1062,6 +1092,7 @@ def run_workflow(
             strict_lullaby_review=strict_lullaby_review,
             review_backend=review_backend,
             vlm_command=vlm_command,
+            audio_review_command=audio_review_command,
             review_frames_dir=latest_paths["iteration_dir"] / "review_frames",
         )
         write_json(latest_paths["iteration_dir"] / "evaluation_report.json", latest_report.to_dict())
@@ -1088,6 +1119,7 @@ def run_workflow(
                     "evidence": reviewer.evidence,
                     "backend": review_backend,
                     "vlm_command": vlm_command,
+                    "audio_review_command": audio_review_command,
                 },
             )
         revision = build_revision_plan(plan, latest_report)

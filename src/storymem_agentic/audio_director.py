@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Iterable
 
 from .backends import load_backend_config
 from .schemas import AudioLinePlan, AudioMode, AudioPlan, SceneHint

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -19,6 +18,7 @@ REVIEW_SCHEMA: dict[str, Any] = {
     "type": "object",
     "required": ["passed", "scores", "failure_reasons"],
     "properties": {
+        "reviewer": {"type": "string"},
         "passed": {"type": "boolean"},
         "scores": {"type": "object"},
         "failure_reasons": {"type": "array", "items": {"type": "string"}},
@@ -51,6 +51,7 @@ class ModelReviewConfig:
     vlm_command: str | None = None
     ffmpeg_bin: str = "ffmpeg"
     strict_lullaby_review: bool = True
+    audio_command: str | None = None
 
 
 def _frame_path(review_frames_dir: Path, scene_num: int, label: str) -> Path:
@@ -239,8 +240,8 @@ def _call_reviewer(
             reviewer=reviewer,
             passed=False,
             scores={"model_call": 0.0},
-            failure_reasons=["model_review_failed"],
-            evidence={"error": str(exc)},
+            failure_reasons=["review_infrastructure_error"],
+            evidence={"error": str(exc), "content_evaluated": False},
         )
     return _normalize_model_report(reviewer, response)
 
@@ -313,15 +314,15 @@ def model_review_reports(
     backend = CommandAgentBackend(config.vlm_command)
     try:
         response = backend.generate_json(_aggregated_review_prompt(), AGGREGATED_REVIEW_SCHEMA, {**context, "response_key": "ReviewAggregatorAgent"})
-        return _normalize_aggregated_reports(response)
+        reports = _normalize_aggregated_reports(response)
     except Exception as exc:  # noqa: BLE001 - reviewer failure is review evidence
-        return [
+        reports = [
             ReviewerReport(
                 reviewer=reviewer,
                 passed=False,
                 scores={"model_call": 0.0},
-                failure_reasons=["model_review_failed"],
-                evidence={"error": str(exc)},
+                failure_reasons=["review_infrastructure_error"],
+                evidence={"error": str(exc), "content_evaluated": False},
             )
             for reviewer in [
                 "VisualSafetyReviewAgent",
@@ -331,3 +332,20 @@ def model_review_reports(
                 "AudioVisualSyncReviewAgent",
             ]
         ]
+    if config.audio_command:
+        audio_backend = CommandAgentBackend(config.audio_command)
+        audio_context = {
+            **context,
+            "review_media_path": str(final_video_path),
+            "required_modalities": ["audio", "video"],
+        }
+        dedicated = [
+            _call_reviewer(audio_backend, reviewer, audio_context)
+            for reviewer in ["AudioReviewAgent", "AudioVisualSyncReviewAgent"]
+        ]
+        reports = [
+            report
+            for report in reports
+            if report.reviewer not in {"AudioReviewAgent", "AudioVisualSyncReviewAgent"}
+        ] + dedicated
+    return reports

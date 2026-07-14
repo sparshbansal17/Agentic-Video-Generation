@@ -9,6 +9,7 @@ from .audio_director import build_audio_plan, load_story_hints
 from .backends import write_backend_manifest
 from .evaluation import evaluate_manifest, write_evaluation
 from .mixer import build_mix_manifest, write_mix_manifest
+from .song_pipeline import build_song_spec, validate_song_feasibility
 
 
 @dataclass(slots=True)
@@ -28,6 +29,7 @@ class AgenticRunResult:
     mix_manifest_path: Path
     backend_manifest_path: Path
     evaluation_path: Path
+    song_spec_path: Path
 
 
 def _write_json(path: Path, payload: dict[str, Any]) -> Path:
@@ -61,6 +63,11 @@ def write_audio_artifacts(
     root = Path(output_dir)
     audio_dir = root / "audio" if nested_audio_dir else root
     audio_plan_path = _write_json(audio_dir / "audio_plan.json", plan.to_dict())
+    song_spec = build_song_spec(plan, story_context=story_summary, timing_authority="video")
+    feasibility = validate_song_feasibility(song_spec)
+    if not feasibility["passed"]:
+        raise ValueError(f"lyrics cannot fit fixed video timing: {feasibility['issues']}")
+    song_spec_path = _write_json(audio_dir / "song_spec.json", song_spec.to_dict())
     mix_manifest = build_mix_manifest(plan)
     mix_manifest_path = write_mix_manifest(audio_dir / "mix_manifest.json", mix_manifest)
     backend_manifest_path = write_backend_manifest(
@@ -86,6 +93,7 @@ def write_audio_artifacts(
         mix_manifest_path=mix_manifest_path,
         backend_manifest_path=backend_manifest_path,
         evaluation_path=evaluation_path,
+        song_spec_path=song_spec_path,
     )
 
 
@@ -142,6 +150,7 @@ def run_agentic(
                 str(audio_result.mix_manifest_path.relative_to(root)),
                 str(audio_result.backend_manifest_path.relative_to(root)),
                 str(audio_result.evaluation_path.relative_to(root)),
+                str(audio_result.song_spec_path.relative_to(root)),
             ],
         ),
         video_stage,
@@ -285,6 +294,7 @@ def run_audio_postprocess(
                         str(audio_result.audio_plan_path.relative_to(root)),
                         str(audio_result.mix_manifest_path.relative_to(root)),
                         str(audio_result.backend_manifest_path.relative_to(root)),
+                        str(audio_result.song_spec_path.relative_to(root)),
                     ],
                 )
             ),
@@ -316,5 +326,6 @@ def run_audio_postprocess(
         "mix_manifest_path": str(audio_result.mix_manifest_path),
         "backend_manifest_path": str(audio_result.backend_manifest_path),
         "evaluation_path": str(audio_result.evaluation_path),
+        "song_spec_path": str(audio_result.song_spec_path),
         "media_output": str(media_output) if media_output else None,
     }
