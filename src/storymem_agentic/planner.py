@@ -1570,7 +1570,7 @@ class PromptPlannerAgent:
         *,
         target_fps: int = 24,
         critic: PlanCriticAgent | None = None,
-        max_plan_revisions: int = 4,
+        max_plan_revisions: int = 8,
     ) -> None:
         self.backend = backend
         self.target_fps = target_fps
