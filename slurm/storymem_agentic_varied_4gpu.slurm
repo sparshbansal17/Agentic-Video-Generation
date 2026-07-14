@@ -31,6 +31,8 @@ REVIEWER_MODEL="${REVIEWER_MODEL:-Qwen/Qwen2-VL-7B-Instruct}"
 SEED="${SEED:-720}"
 CHARACTER_BANK="${CHARACTER_BANK:-}"
 FINALIZED_PLAN="${FINALIZED_PLAN:-}"
+EXECUTE_VIDEO="${EXECUTE_VIDEO:-1}"
+MEDIA_AUDIO_MODE="${MEDIA_AUDIO_MODE:-full_song}"
 CHARACTER_BANK_ARGS=()
 if [ -n "${CHARACTER_BANK}" ]; then
   CHARACTER_BANK_ARGS=(--character-bank "${CHARACTER_BANK}")
@@ -38,6 +40,10 @@ fi
 FINALIZED_PLAN_ARGS=()
 if [ -n "${FINALIZED_PLAN}" ]; then
   FINALIZED_PLAN_ARGS=(--production-plan "${FINALIZED_PLAN}")
+fi
+VIDEO_EXECUTION_ARGS=(--execute-video)
+if [ "${EXECUTE_VIDEO}" = "0" ]; then
+  VIDEO_EXECUTION_ARGS=(--no-execute-video)
 fi
 
 module load python
@@ -96,10 +102,10 @@ python -m storymem_agentic.cli iterate \
   --audio-aligner whisperx \
   --whisperx-command "${WHISPERX_CMD}" \
   --generate-audio \
-  --media-audio-mode full_song \
+  --media-audio-mode "${MEDIA_AUDIO_MODE}" \
   --audio-output-suffix _with_music \
   --ace-step-cmd "${ACE_STEP_CMD}" \
   --strict-lullaby-review \
-  --execute-video
+  "${VIDEO_EXECUTION_ARGS[@]}"
 
 echo "OUTPUT_PATH=${OUTPUT_PATH}"

@@ -818,7 +818,7 @@ def run_workflow(
                 "ace_step",
                 "ace_step_full_song",
             }:
-                audio_voice_backend = "f5_tts"
+                audio_voice_backend = "ace_step" if ace_step_cmd else "f5_tts"
             if music_backend:
                 audio_music_backend = music_backend
             elif current_media_audio_mode == "hybrid_voice_bed":
@@ -828,7 +828,7 @@ def run_workflow(
             if current_media_audio_mode in {"hybrid_voice_bed", "scene_lyrics_mix"} and audio_music_backend in {
                 "ace_step_full_song",
             }:
-                audio_music_backend = "musicgen"
+                audio_music_backend = "ace_step" if ace_step_cmd else "musicgen"
             effective_media_audio_mode = media_audio_mode
             if plan.audio_mode == "voice_bed" and media_audio_mode == "full_song":
                 effective_media_audio_mode = "separate_stems"
@@ -967,8 +967,10 @@ def run_workflow(
                 write_json(latest_paths["iteration_dir"] / "full_song_audio_fallback.json", fallback_record)
                 write_json(latest_paths["iteration_dir"] / "whisperx_full_song_alignment.json", full_song_alignment)
                 current_media_audio_mode = "hybrid_voice_bed" if media_audio_mode == "hybrid_voice_bed" else "scene_lyrics_mix"
-                audio_voice_backend = "f5_tts" if audio_voice_backend in {"ace_step", "ace_step_full_song"} else audio_voice_backend
-                audio_music_backend = "musicgen" if audio_music_backend in {"ace_step", "ace_step_full_song"} else audio_music_backend
+                if audio_voice_backend in {"ace_step", "ace_step_full_song"}:
+                    audio_voice_backend = "ace_step" if ace_step_cmd else "f5_tts"
+                if audio_music_backend in {"ace_step", "ace_step_full_song"}:
+                    audio_music_backend = "ace_step" if ace_step_cmd else "musicgen"
                 audio_result = render_audio_candidate(current_media_audio_mode, seed_offset=503)
                 if audio_result.get("media_output"):
                     final_candidate = Path(str(audio_result["media_output"]))
