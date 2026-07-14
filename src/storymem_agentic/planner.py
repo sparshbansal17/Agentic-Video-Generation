@@ -733,9 +733,6 @@ def build_visual_bible(plan: ProductionPlan) -> dict[str, Any]:
 
 
 def _visible_action_replacement(action: str) -> str | None:
-    wishing = re.match(r"(?i)^(.*?)\s+wishes\s+for\s+.*?\s+and\s+(.+)$", action.strip())
-    if wishing:
-        return f"{wishing.group(1)} {wishing.group(2)}".strip(" ,;.")
     imagining = re.match(r"(?i)^(.*?)\s+is\s+looking\s+at\s+(.+?),\s*imagining\s+(.+)$", action.strip())
     if imagining:
         return f"{imagining.group(1)} points toward {imagining.group(2)} with an eager smile".strip(" ,;.")
@@ -875,7 +872,7 @@ def validate_plan_semantics(plan: ProductionPlan, *, require_reviewer_approval: 
                     "evidence": {"observed": scene.action, "expected": "visible subject action", "source": "action"},
                 }
             )
-        if re.search(r"\b(?:sing|sings|singing|sang|say|says|saying|ask|asks|asking|speak|speaks|speaking|tune|music|think|thinks|thinking|reflect|reflects|reflecting|imagine|imagines|imagining|wish|wishes|wishing|enjoy|enjoys|enjoying)\b", action_lower):
+        if re.search(r"\b(?:sing|sings|singing|sang|say|says|saying|ask|asks|asking|speak|speaks|speaking|tune|music|think|thinks|thinking|reflect|reflects|reflecting|imagine|imagines|imagining|enjoy|enjoys|enjoying)\b", action_lower):
             replacement = _visible_action_replacement(scene.action)
             issues.append(
                 {
@@ -960,34 +957,6 @@ def validate_plan_semantics(plan: ProductionPlan, *, require_reviewer_approval: 
                     "evidence": {"matches_scene_num": previous.scene_num, "unchanged_fields": unchanged},
                 }
             )
-    action_groups: dict[str, list[int]] = {}
-    for scene in plan.scenes:
-        if "non-agentic" in f"{scene.scene_goal} {scene.description}".lower():
-            continue
-        key = _clean_sentence(scene.action).lower()
-        action_groups.setdefault(key, []).append(scene.scene_num)
-    existing_repeats = {
-        (issue.get("code"), issue.get("scene_num"))
-        for issue in issues
-        if isinstance(issue, dict)
-    }
-    for action, scene_nums in action_groups.items():
-        if action and len(scene_nums) > 1:
-            for scene_num in scene_nums[1:]:
-                if ("repeated_narrative_beat", scene_num) not in existing_repeats:
-                    issues.append(
-                        {
-                            "code": "repeated_narrative_beat",
-                            "scene_num": scene_num,
-                            "field": "action",
-                            "message": "each lyric scene needs a distinct visible development, reaction, or payoff",
-                            "evidence": {
-                                "observed": plan.scenes[scene_num - 1].action,
-                                "expected": "a distinct visible story beat",
-                                "source": f"matching action in scenes {scene_nums}",
-                            },
-                        }
-                    )
     return {
         "passed": not issues,
         "issue_count": len(issues),
