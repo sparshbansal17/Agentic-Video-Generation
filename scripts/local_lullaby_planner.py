@@ -350,6 +350,7 @@ def main() -> int:
         forbidden_words = [
             "fall", "falls", "falling", "fell", "drop", "drops", "dropping", "dropped",
             "break", "breaks", "breaking", "broke", "crash", "crashes", "crashing", "impact",
+            "descend", "descends", "descending", "descended",
         ]
     if "repeated_camera_coverage" in issue_codes:
         forbidden_words = [*(forbidden_words or []), "medium shot"]
