@@ -14,6 +14,8 @@ import json5
 
 
 DEFAULT_STYLE_PROMPT = (
+    "compact 20-second nursery song, no instrumental intro, lead vocal begins on the first downbeat, "
+    "finish every lyric before the final two-second instrumental cadence, "
     "gentle adult lullaby, warm bedtime nursery rhyme, clear intelligible vocal, "
     "sing only the provided lyrics in order, exactly once per written line, "
     "do not substitute, omit, invent, or reorder words, "
@@ -126,7 +128,7 @@ def _audio_style_prompt(story: dict, config: AudioConfig) -> str:
         f"planner audio direction: {plan_music_prompt}."
     )
     scene_prefix = (
-        "COMPACT SCENE CONTEXT: arrangement follows the full story arc with a soft opening, curious bedtime moment, "
+        "COMPACT SCENE CONTEXT: arrangement follows the full story arc with an immediate sung opening, curious bedtime moment, "
         "gentle lift over the sleeping world, sparkling highlight, and peaceful goodnight cadence, "
     )
     scene_context = scene_prefix + ", ".join(scene_notes)

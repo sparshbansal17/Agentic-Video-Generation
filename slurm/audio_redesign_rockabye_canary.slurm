@@ -16,7 +16,10 @@ umask 002
 REPO_ROOT="${REPO_ROOT:-/scratch/gautschi/bansa125/storymem-agentic}"
 SOURCE_ROOT="${SOURCE_ROOT:-${REPO_ROOT}/results/final_varied_rockabye_agentic_4gpu_13541363}"
 SOURCE_ITERATION="${SOURCE_ITERATION:-${SOURCE_ROOT}/iterations/001}"
-RUN_ROOT="${RUN_ROOT:-${REPO_ROOT}/results/audio_redesign_canary/${SLURM_JOB_ID:-manual}}"
+AUDIO_TOPIC="${AUDIO_TOPIC:-Rock-a-bye Baby}"
+AUDIO_SEED="${AUDIO_SEED:-1701}"
+RUN_SLUG="${RUN_SLUG:-canary}"
+RUN_ROOT="${RUN_ROOT:-${REPO_ROOT}/results/audio_redesign_${RUN_SLUG}/${SLURM_JOB_ID:-manual}}"
 FFMPEG_BIN="${FFMPEG_BIN:-/home/bansa125/bin/ffmpeg}"
 VENV="${VENV:-${REPO_ROOT}/.venv}"
 
@@ -42,14 +45,14 @@ OMNI_CMD="${VENV}/bin/python ${REPO_ROOT}/scripts/local_omni_audio_reviewer.py -
 
 set +e
 "${VENV}/bin/python" -m storymem_agentic.cli generate \
-  --topic "Rock-a-bye Baby" \
+  --topic "${AUDIO_TOPIC}" \
   --lyrics-file "${SOURCE_ITERATION}/lyrics.txt" \
   --production-plan "${SOURCE_ITERATION}/production_plan.json" \
   --output-dir "${RUN_ROOT}" \
   --target-duration 20 \
   --clip-count 4 \
   --max-iterations 1 \
-  --seed 1701 \
+  --seed "${AUDIO_SEED}" \
   --no-execute-video \
   --planner-backend mock \
   --review-backend command \

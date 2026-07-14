@@ -6,6 +6,7 @@ from pathlib import Path
 
 import soundfile as sf
 from acestep.pipeline_ace_step import ACEStepPipeline
+from acestep_prompt import structured_lyrics
 
 
 def _read_text(path):
@@ -56,7 +57,7 @@ def main():
     os.environ["CUDA_VISIBLE_DEVICES"] = str(args.device_id)
 
     prompt_data = _read_prompt(args.prompt_file)
-    lyrics = _read_text(args.lyrics_file)
+    lyrics = structured_lyrics(_read_text(args.lyrics_file))
     prompt = prompt_data.get("style_prompt") or (
         "gentle adult lullaby, music box, soft bells, warm bedtime nursery rhyme"
     )

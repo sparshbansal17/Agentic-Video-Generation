@@ -1,5 +1,6 @@
 import unittest
 
+from acestep_prompt import structured_lyrics
 from story_audio import AudioConfig, _audio_style_prompt
 from storymem_agentic.audio_director import build_audio_plan
 from storymem_agentic.evaluation import evaluate_manifest
@@ -8,6 +9,10 @@ from storymem_agentic.schemas import EvaluationReport, ProductionPlan, ReviewerR
 
 
 class AudioPlanTests(unittest.TestCase):
+    def test_acestep_short_song_lyrics_get_immediate_verse_structure(self):
+        self.assertEqual(structured_lyrics("Hush now\nSleep now"), "[verse]\nHush now\nSleep now")
+        self.assertEqual(structured_lyrics("[chorus]\nHush now"), "[chorus]\nHush now")
+
     def test_build_audio_plan_allocates_lines(self):
         plan = build_audio_plan("A line\nSecond line", target_duration_seconds=10)
         data = plan.to_dict()
@@ -50,6 +55,8 @@ class AudioPlanTests(unittest.TestCase):
         self.assertNotIn("Twinkle, twinkle, little star", prompt)
         self.assertNotIn("20.000-25.000s", prompt)
         self.assertEqual(prompt.count("plinky_unique"), 1)
+        self.assertIn("no instrumental intro", prompt)
+        self.assertIn("lead vocal begins on the first downbeat", prompt)
 
     def test_repeated_word_omission_fails_manifest_evaluation(self):
         plan = build_audio_plan("Twinkle, twinkle, little star", target_duration_seconds=5)

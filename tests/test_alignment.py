@@ -19,6 +19,23 @@ class AlignmentTests(unittest.TestCase):
         self.assertTrue(result["passed"])
         self.assertFalse(result["enforce_scene_windows"])
 
+    def test_continuous_song_rejects_excessive_initial_lyric_delay(self):
+        result = analyze_whisperx_alignment(
+            ["Hush now", "Sleep now"],
+            [(0.0, 2.0), (2.0, 4.0)],
+            [
+                {"word": "Hush", "start": 10.8, "end": 11.2},
+                {"word": "now", "start": 11.3, "end": 11.6},
+                {"word": "Sleep", "start": 12.0, "end": 12.4},
+                {"word": "now", "start": 12.5, "end": 12.8},
+            ],
+            enforce_scene_windows=False,
+        )
+
+        self.assertFalse(result["passed"])
+        self.assertEqual(result["initial_lyric_start_seconds"], 10.8)
+        self.assertIn("lyrics_start_too_late", result["failure_reasons"])
+
     def test_word_error_rate_exact_match(self):
         self.assertEqual(word_error_rate("Twinkle little star", "twinkle little star"), 0)
 

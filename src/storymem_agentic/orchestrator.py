@@ -442,14 +442,15 @@ def _needs_scene_lyrics_audio_fallback(alignment: dict[str, Any] | None) -> bool
     if not alignment or alignment.get("passed"):
         return False
     return any(
-        str(reason).startswith("line_") or str(reason) in {"wer_above_threshold", "missing_observed_lyrics"}
+        str(reason).startswith("line_")
+        or str(reason) in {"wer_above_threshold", "missing_observed_lyrics", "lyrics_start_too_late"}
         for reason in alignment.get("failure_reasons", [])
     )
 
 
-def _alignment_rank(alignment: dict[str, Any] | None) -> tuple[int, int, int, int, float, float, int]:
+def _alignment_rank(alignment: dict[str, Any] | None) -> tuple[int, float, int, int, int, float, float, int]:
     if not alignment:
-        return (1, 999, 999, 999, 1.0, 999.0, 999)
+        return (1, 999.0, 999, 999, 999, 1.0, 999.0, 999)
     lines = alignment.get("lines", []) or []
     missing_words = sum(int(item.get("missing_word_count") or 0) for item in lines)
     final_line_missing = 0
@@ -466,6 +467,11 @@ def _alignment_rank(alignment: dict[str, Any] | None) -> tuple[int, int, int, in
         drift += abs(float(item.get("end_drift_seconds") or 0.0))
     return (
         0 if alignment.get("passed") else 1,
+        (
+            float(alignment["initial_lyric_start_seconds"])
+            if alignment.get("initial_lyric_start_seconds") is not None
+            else 999.0
+        ),
         final_line_missing,
         repeated_omissions,
         missing_words,

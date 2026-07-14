@@ -210,6 +210,7 @@ def analyze_whisperx_alignment(
     wer_threshold: float = 0.25,
     drift_tolerance_seconds: float = 1.0,
     enforce_scene_windows: bool = True,
+    max_initial_lyric_delay_seconds: float = 3.0,
 ) -> dict[str, Any]:
     reference = " ".join(reference_lines)
     hypothesis = transcript_from_words(aligned_words)
@@ -218,6 +219,14 @@ def analyze_whisperx_alignment(
     failures = []
     if reference.strip() and not hypothesis.strip():
         failures.append("missing_observed_lyrics")
+    timed_starts = [
+        float(item["start"])
+        for item in aligned_words
+        if item.get("start") is not None and words(str(item.get("word", "")))
+    ]
+    initial_lyric_start = min(timed_starts) if timed_starts else None
+    if initial_lyric_start is not None and initial_lyric_start > max_initial_lyric_delay_seconds:
+        failures.append("lyrics_start_too_late")
     final_line_index = len(reference_lines)
     for item, (planned_start, planned_end) in zip(lines, planned_windows):
         observed_start = item["observed_start_seconds"]
@@ -263,6 +272,8 @@ def analyze_whisperx_alignment(
         ),
         "wer_threshold": wer_threshold,
         "drift_tolerance_seconds": drift_tolerance_seconds,
+        "initial_lyric_start_seconds": initial_lyric_start,
+        "max_initial_lyric_delay_seconds": max_initial_lyric_delay_seconds,
         "enforce_scene_windows": enforce_scene_windows,
         "transcript": hypothesis,
         "lines": lines,
