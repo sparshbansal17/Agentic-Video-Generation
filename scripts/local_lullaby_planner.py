@@ -84,7 +84,7 @@ def build_user_prompt(payload: dict[str, Any]) -> str:
             visual_action_instruction = (
                 "\nCRITICAL VISIBLE-ACTION REVISION REQUIRED:\n"
                 "- Edit only each cited action field. Do not return camera edits.\n"
-                "- Preserve any physical activity already present, but replace singing, music, thinking, reflecting, "
+                "- Preserve any physical activity already present, but replace singing, music, thinking, imagining, reflecting, "
                 "spoken dialogue, or camera language with a visible pose, gaze, facial expression, or gesture.\n"
             )
         camera_instruction = ""

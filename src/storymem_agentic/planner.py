@@ -869,7 +869,7 @@ def validate_plan_semantics(plan: ProductionPlan, *, require_reviewer_approval: 
                     "evidence": {"observed": scene.action, "expected": "visible subject action", "source": "action"},
                 }
             )
-        if re.search(r"\b(?:sing|sings|singing|sang|say|says|saying|ask|asks|asking|speak|speaks|speaking|tune|music|think|thinks|thinking|reflect|reflects|reflecting|enjoy|enjoys|enjoying)\b", action_lower):
+        if re.search(r"\b(?:sing|sings|singing|sang|say|says|saying|ask|asks|asking|speak|speaks|speaking|tune|music|think|thinks|thinking|reflect|reflects|reflecting|imagine|imagines|imagining|enjoy|enjoys|enjoying)\b", action_lower):
             replacement = _visible_action_replacement(scene.action)
             issues.append(
                 {
@@ -1103,6 +1103,11 @@ def _compile_scene_description(
 def _unsafe_safety_hits(text: str, *, field: str) -> list[dict[str, str]]:
     lowered = f" {str(text or '').lower()} "
     lowered = re.sub(r"\b(?:rain|raindrops|snow|snowflakes|leaves|petals|water)\s+(?:is\s+|are\s+)?falling\b", " ", lowered)
+    lowered = re.sub(
+        r"\b(?:rain|raindrops|snow|snowflakes|leaves|petals|water)\s+(?:is\s+|are\s+)?(?:gently\s+)?descend(?:s|ed|ing)?\b",
+        " ",
+        lowered,
+    )
     safe_adaptation_terms = [
         "no falling",
         "never falling",
