@@ -56,13 +56,30 @@ def build_user_prompt(payload: dict[str, Any]) -> str:
                 "safety_adaptation as needed; never patch the derived description field.\n"
             )
         diversity_instruction = ""
-        if "repeated_scene_staging" in issue_codes or "repeated_narrative_beat" in issue_codes:
+        if "repeated_scene_staging" in issue_codes:
             diversity_instruction = (
                 "\nCRITICAL SCENE-DIVERSITY REVISION REQUIRED:\n"
                 "- Rewrite every repeated_scene_staging scene identified by scene_num.\n"
                 "- Give it a materially different setting or foreground/background staging, a different visible action, "
                 "and a different camera composition from matches_scene_num.\n"
                 "- Preserve character identity and the supplied lyric; do not return the previous scene unchanged.\n"
+            )
+        narrative_instruction = ""
+        if "repeated_narrative_beat" in issue_codes:
+            narrative_instruction = (
+                "\nCRITICAL NARRATIVE-BEAT REVISION REQUIRED:\n"
+                "- Edit only the action field of each cited scene; do not answer with camera, style, or setting edits.\n"
+                "- Use that scene's lyric_line, scene_goal, and lyric_interpretation to create a distinct visible gesture, "
+                "expression, interaction, reaction, or payoff that advances beyond the preceding action.\n"
+                "- The replacement must name what the visible subject physically does within five seconds.\n"
+            )
+        visual_action_instruction = ""
+        if "audio_or_internal_action" in issue_codes or "camera_direction_in_action" in issue_codes:
+            visual_action_instruction = (
+                "\nCRITICAL VISIBLE-ACTION REVISION REQUIRED:\n"
+                "- Edit only each cited action field. Do not return camera edits.\n"
+                "- Preserve any physical activity already present, but replace singing, music, thinking, reflecting, "
+                "or camera language with a visible pose, gaze, facial expression, or gesture.\n"
             )
         camera_instruction = ""
         if "repeated_camera_coverage" in issue_codes:
@@ -88,7 +105,7 @@ def build_user_prompt(payload: dict[str, Any]) -> str:
             "planner decision JSON. Preserve supplied lyrics exactly and edit the structured scene descriptions, "
             "camera fields, characters, and continuity fields before prompt compilation.\n"
             f"Validation issues JSON:\n{json.dumps(validation_issues, indent=2)}\n"
-            f"{unsafe_instruction}{diversity_instruction}{camera_instruction}{crowd_instruction}\n"
+            f"{unsafe_instruction}{diversity_instruction}{narrative_instruction}{visual_action_instruction}{camera_instruction}{crowd_instruction}\n"
             "GENERAL CORRECTION CONTRACT:\n"
             "- Treat every issue object, regardless of code, as a binding acceptance criterion.\n"
             "- Use scene_num to edit the affected scene and use field/evidence/message to determine the required change.\n"

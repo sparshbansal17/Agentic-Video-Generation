@@ -733,6 +733,12 @@ def build_visual_bible(plan: ProductionPlan) -> dict[str, Any]:
 
 
 def _visible_action_replacement(action: str) -> str | None:
+    singing_while = re.match(
+        r"(?i)^(.*?\b(?:is|are))\s+.*?\bsinging\b.*?\bwhile\s+(.+)$",
+        action.strip(),
+    )
+    if singing_while:
+        return f"{singing_while.group(1)} {singing_while.group(2)}".strip(" ,;.")
     cleaned = re.sub(
         r"(?i)(?:,|\bwhile\b|\band\b|\bwith\b)\s*(?:a\s+)?(?:sing(?:s|ing)?|tune|music|think(?:s|ing)?|reflect(?:s|ing)?|enjoy(?:s|ing)?)\b[^,;.]*",
         "",
