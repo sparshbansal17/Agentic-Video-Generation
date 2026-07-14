@@ -93,7 +93,10 @@ def evaluate_iteration(
     if not dry_run and final_video_path.exists():
         technical = probe_audio_quality(
             final_video_path,
-            expected_duration_seconds=planned_duration,
+            # The muxed audio must cover the rendered video timeline. Planner
+            # timestamps are semantic targets and can differ slightly from the
+            # encoder's frame-quantized duration.
+            expected_duration_seconds=duration or planned_duration,
             ffmpeg_bin=ffmpeg_bin,
         )
         reviewer_reports.append(
