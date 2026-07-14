@@ -734,7 +734,7 @@ def build_visual_bible(plan: ProductionPlan) -> dict[str, Any]:
 
 def _visible_action_replacement(action: str) -> str | None:
     cleaned = re.sub(
-        r"(?i)(?:,|\bwhile\b|\band\b)\s*(?:sing(?:s|ing)?|think(?:s|ing)?|reflect(?:s|ing)?)\b[^,;.]*",
+        r"(?i)(?:,|\bwhile\b|\band\b|\bwith\b)\s*(?:a\s+)?(?:sing(?:s|ing)?|tune|music|think(?:s|ing)?|reflect(?:s|ing)?|enjoy(?:s|ing)?)\b[^,;.]*",
         "",
         action,
     ).strip(" ,;.")
@@ -857,7 +857,7 @@ def validate_plan_semantics(plan: ProductionPlan, *, require_reviewer_approval: 
                     "evidence": {"observed": scene.action, "expected": "visible subject action", "source": "action"},
                 }
             )
-        if re.search(r"\b(?:sing|sings|singing|sang|think|thinks|thinking|reflect|reflects|reflecting)\b", action_lower):
+        if re.search(r"\b(?:sing|sings|singing|sang|tune|music|think|thinks|thinking|reflect|reflects|reflecting|enjoy|enjoys|enjoying)\b", action_lower):
             replacement = _visible_action_replacement(scene.action)
             issues.append(
                 {
@@ -909,6 +909,24 @@ def validate_plan_semantics(plan: ProductionPlan, *, require_reviewer_approval: 
                     }
                 )
     for current, previous in zip(plan.scenes[1:], plan.scenes):
+        agentic_pair = not any(
+            "non-agentic" in str(value).lower()
+            for value in (current.scene_goal, previous.scene_goal, current.description, previous.description)
+        )
+        if agentic_pair and _clean_sentence(current.action).lower() == _clean_sentence(previous.action).lower():
+            issues.append(
+                {
+                    "code": "repeated_narrative_beat",
+                    "scene_num": current.scene_num,
+                    "field": "action",
+                    "message": "consecutive lyric scenes need distinct visible actions or reactions that advance the story",
+                    "evidence": {
+                        "observed": current.action,
+                        "expected": "a distinct visible development, reaction, or payoff",
+                        "source": f"action in preceding scene {previous.scene_num}",
+                    },
+                }
+            )
         unchanged = [
             field_name
             for field_name in ("setting", "action", "camera")

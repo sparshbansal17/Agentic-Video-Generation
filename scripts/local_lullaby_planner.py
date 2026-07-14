@@ -56,7 +56,7 @@ def build_user_prompt(payload: dict[str, Any]) -> str:
                 "safety_adaptation as needed; never patch the derived description field.\n"
             )
         diversity_instruction = ""
-        if "repeated_scene_staging" in issue_codes:
+        if "repeated_scene_staging" in issue_codes or "repeated_narrative_beat" in issue_codes:
             diversity_instruction = (
                 "\nCRITICAL SCENE-DIVERSITY REVISION REQUIRED:\n"
                 "- Rewrite every repeated_scene_staging scene identified by scene_num.\n"
