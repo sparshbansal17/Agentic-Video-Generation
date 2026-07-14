@@ -733,6 +733,9 @@ def build_visual_bible(plan: ProductionPlan) -> dict[str, Any]:
 
 
 def _visible_action_replacement(action: str) -> str | None:
+    imagining = re.match(r"(?i)^(.*?)\s+is\s+looking\s+at\s+(.+?),\s*imagining\s+(.+)$", action.strip())
+    if imagining:
+        return f"{imagining.group(1)} points toward {imagining.group(2)} with an eager smile".strip(" ,;.")
     enjoying = re.match(r"(?i)^(.*?)\s+is\s+enjoying\s+(.+)$", action.strip())
     if enjoying:
         return f"{enjoying.group(1)} smiles brightly during {enjoying.group(2)}".strip(" ,;.")
