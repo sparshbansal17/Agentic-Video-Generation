@@ -732,6 +732,15 @@ def build_visual_bible(plan: ProductionPlan) -> dict[str, Any]:
     }
 
 
+def _visible_action_replacement(action: str) -> str | None:
+    cleaned = re.sub(
+        r"(?i)(?:,|\bwhile\b|\band\b)\s*(?:sing(?:s|ing)?|think(?:s|ing)?|reflect(?:s|ing)?)\b[^,;.]*",
+        "",
+        action,
+    ).strip(" ,;.")
+    return cleaned if cleaned and cleaned != action.strip(" ,;.") else None
+
+
 def validate_plan_semantics(plan: ProductionPlan, *, require_reviewer_approval: bool = True) -> dict[str, Any]:
     issues: list[dict[str, Any]] = []
     plan.validate()
@@ -849,6 +858,7 @@ def validate_plan_semantics(plan: ProductionPlan, *, require_reviewer_approval: 
                 }
             )
         if re.search(r"\b(?:sing|sings|singing|sang|think|thinks|thinking|reflect|reflects|reflecting)\b", action_lower):
+            replacement = _visible_action_replacement(scene.action)
             issues.append(
                 {
                     "code": "audio_or_internal_action",
@@ -856,6 +866,14 @@ def validate_plan_semantics(plan: ProductionPlan, *, require_reviewer_approval: 
                     "field": "action",
                     "message": "replace audio-only or internal-state action with a readable pose, gaze, expression, or gesture",
                     "evidence": {"observed": scene.action, "expected": "directly visible action", "source": "action"},
+                    **(
+                        {
+                            "suggested_change": "remove the audio or internal clause while preserving the visible action",
+                            "replacement_value": replacement,
+                        }
+                        if replacement
+                        else {}
+                    ),
                 }
             )
     if plan.scenes and not plan.scenes[0].cut:
@@ -1598,19 +1616,6 @@ class PromptPlannerAgent:
             last_plan = plan
             self.agent_steps.append({"kind": "planner_draft" if attempt == 0 else "planner_revision", "attempt": attempt + 1, "status": "converted", "candidate": candidate, "production_plan": plan.to_dict()})
             deterministic_report = validate_plan_semantics(plan, require_reviewer_approval=False)
-            if attempt > 0 and self.plan_attempts:
-                previous_candidate = self.plan_attempts[-1].get("candidate")
-                if candidate == previous_candidate:
-                    deterministic_report["issues"].append(
-                        {
-                            "code": "revision_made_no_changes",
-                            "scene_num": None,
-                            "message": "the planner returned the previous invalid decision unchanged",
-                            "evidence": {"previous_attempt": attempt},
-                        }
-                    )
-                    deterministic_report["passed"] = False
-                    deterministic_report["issue_count"] = len(deterministic_report["issues"])
             critic_report = self.critic.review(plan, deterministic_report)
             self.agent_steps.append({"kind": "plan_review", "attempt": attempt + 1, "status": "passed" if critic_report.get("passed") else "rejected", "review": critic_report})
             merged_issues = []
@@ -1681,9 +1686,7 @@ class PromptPlannerAgent:
                     "dropping, crashing, impact, or other hazardous motion is replaced by visibly safe supported motion. "
                     "Remove hazardous wording from the scene instead of only adding a negation. For repeated_scene_staging, "
                     "materially change setting, action, and composition while preserving character continuity. For every "
-                    "other issue code, use its message, scene_num, field, and evidence as binding acceptance criteria. "
-                    "If revision_made_no_changes is present, substantially rewrite every still-invalid field rather than "
-                    "returning the prior decision."
+                    "other issue code, use its message, scene_num, field, and evidence as binding acceptance criteria."
                 ),
             }
             try:

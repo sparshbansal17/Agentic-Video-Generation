@@ -437,7 +437,7 @@ class AgenticArchitectureTests(unittest.TestCase):
 
         self.assertEqual(constrained["scene_revisions"], [patch["scene_revisions"][1]])
 
-    def test_unchanged_invalid_revision_is_reported_generically(self):
+    def test_unchanged_invalid_revision_relies_on_persistent_real_issue(self):
         invalid = self._structured_decision(["Copper kite", "Velvet hill"], character_label="fox")
         invalid["scenes"][1]["setting"] = invalid["scenes"][0]["setting"]
         invalid["scenes"][1]["action"] = invalid["scenes"][0]["action"]
@@ -450,7 +450,7 @@ class AgenticArchitectureTests(unittest.TestCase):
         second_codes = {
             issue["code"] for issue in planner.plan_attempts[1]["deterministic_report"]["issues"]
         }
-        self.assertIn("revision_made_no_changes", second_codes)
+        self.assertNotIn("revision_made_no_changes", second_codes)
         self.assertIn("repeated_scene_staging", second_codes)
 
     def test_unsafe_motion_feedback_drives_general_agentic_revision(self):
