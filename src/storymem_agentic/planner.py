@@ -638,6 +638,10 @@ def _planner_prompt() -> str:
         "important prop, and tracking/reveal/overhead angles only when motivated by the action. Do not change locations "
         "randomly merely to appear different; preserve world geography while changing foreground, subject distance, "
         "screen direction, action, or point of view. "
+        "Make adjacent lyric beats observably different: changing only an adverb, mood, or camera while repeating the "
+        "same subject action is not progression. Introduce supporting characters only when they participate in the lyric "
+        "or causal visual story. Describe settings as one physically coherent, generatable space, and translate abstract "
+        "final lines into a concrete visual metaphor, reaction, transformation, or payoff grounded in that same world. "
         "Keep each scene description between 70 and 120 words. Keep the camera field to one concise camera-movement "
         "sentence under 18 words. Do not place shot size, lens, color tone, composition, or repeated camera labels "
         "inside the camera field; those belong in the scene description once. "
@@ -995,6 +999,13 @@ def _critic_prompt() -> str:
         "bible, changes a recurring character's anchors, depicts unsafe literal action, is vague or internally "
         "contradictory, overloads a five-second clip, conflicts on camera direction, or requests generated text, "
         "dialogue, inset frames, or background music inside a visual scene. Audio planning is reviewed separately; "
+        "For every scene, identify the distinct observable beat and compare it with adjacent scenes. Changes only to "
+        "an adverb, mood label, camera movement, or wording do not constitute narrative progression when the subject "
+        "performs the same action. Verify that the setting describes a physically stageable relationship among subjects "
+        "and locations, that every selected character contributes to the lyric or causal story, and that abstract or "
+        "closing lyrics receive a readable visual metaphor, reaction, transformation, or payoff. Allow useful expressive "
+        "detail beyond a terse scene_goal; report an issue only for a material contradiction, omission, irrelevance, or "
+        "non-generatable ambiguity, not because two valid phrasings are unequal. "
         "do not review or reinterpret music_prompt. For each semantic issue return a stable snake_case code, exact "
         "scene_num (or null for plan-wide issues), affected field when known, concise evidence, and a suggested_change "
         "that preserves the user's input. Also return replacement_value: the exact complete JSON value that should "
@@ -1181,12 +1192,58 @@ def _normalize_critic_issue(issue: Any, index: int) -> dict[str, Any]:
             normalized[key] = issue[key]
     field = normalized.get("field")
     replacement = normalized.get("replacement_value")
-    if isinstance(field, str) and isinstance(replacement, dict) and field in replacement:
+    if scene_num is None and isinstance(field, str) and isinstance(replacement, dict) and field in replacement:
         normalized["replacement_value"] = replacement[field]
     evidence = normalized.get("evidence")
     if isinstance(field, str) and isinstance(evidence, dict) and not evidence.get("observed") and evidence.get(field):
         normalized["evidence"] = {**evidence, "observed": evidence[field]}
     return normalized
+
+
+def _critic_replacement_fields(issue: dict[str, Any], review_plan: dict[str, Any]) -> dict[str, Any]:
+    """Recover typed, scene-local edits without accepting a regenerated plan."""
+    scene_num = issue.get("scene_num")
+    field = issue.get("field")
+    if not isinstance(scene_num, int) or not isinstance(field, str):
+        return {}
+    scenes = review_plan.get("scenes", [])
+    if not 1 <= scene_num <= len(scenes):
+        return {}
+    current_scene = scenes[scene_num - 1]
+    replacement = issue.get("replacement_value")
+    candidates: dict[str, Any] = {}
+    if isinstance(replacement, dict):
+        candidates.update(replacement)
+        nested_scenes = replacement.get("scenes")
+        if isinstance(nested_scenes, list):
+            nested = next(
+                (
+                    scene for scene in nested_scenes
+                    if isinstance(scene, dict) and scene.get("scene_num") == scene_num
+                ),
+                None,
+            )
+            if nested is None and len(nested_scenes) >= scene_num and isinstance(nested_scenes[scene_num - 1], dict):
+                nested = nested_scenes[scene_num - 1]
+            if nested:
+                candidates.update(nested)
+    else:
+        candidates[field] = replacement
+    suggested = issue.get("suggested_change")
+    if (
+        (field not in candidates or candidates.get(field) == current_scene.get(field))
+        and isinstance(suggested, type(current_scene.get(field)))
+    ):
+        candidates[field] = suggested
+    editable = set(current_scene) - {"scene_num", "lyric_line"}
+    return {
+        key: value
+        for key, value in candidates.items()
+        if key in editable
+        and value not in (None, "", [], {})
+        and isinstance(value, type(current_scene.get(key)))
+        and value != current_scene.get(key)
+    }
 
 
 def _normalize_critic_scores(value: Any) -> dict[str, float]:
@@ -1347,6 +1404,13 @@ class PlanCriticAgent:
             )
             raw_issues = []
         normalized_issues = [_normalize_critic_issue(issue, index) for index, issue in enumerate(raw_issues, start=1)]
+        for issue in normalized_issues:
+            replacements = _critic_replacement_fields(issue, review_plan)
+            if replacements:
+                issue["replacement_fields"] = replacements
+                field = issue.get("field")
+                if field in replacements:
+                    issue["replacement_value"] = replacements[field]
         issues = [issue for issue in normalized_issues if _critic_issue_is_actionable(issue, review_plan)]
         warnings = [
             {**issue, "warning": "critic claim was not grounded in editable planner fields with comparative evidence"}
@@ -1364,25 +1428,40 @@ class PlanCriticAgent:
                 }
             )
         known = {
-            (str(issue.get("code")), issue.get("scene_num"))
+            (str(issue.get("code")), issue.get("scene_num")): issue
             for issue in issues
             if isinstance(issue, dict)
         }
         for issue in deterministic_issues:
-            if isinstance(issue, dict) and (str(issue.get("code")), issue.get("scene_num")) not in known:
+            if not isinstance(issue, dict):
+                continue
+            key = (str(issue.get("code")), issue.get("scene_num"))
+            if key not in known:
                 issues.append(issue)
-        scene_revisions = [
-            {
-                "scene_num": issue["scene_num"],
-                "field_to_change": issue["field"],
-                "replacement_value": issue["replacement_value"],
-            }
-            for issue in issues
-            if isinstance(issue, dict)
-            and issue.get("scene_num") is not None
-            and issue.get("field")
-            and "replacement_value" in issue
-        ]
+                known[key] = issue
+                continue
+            semantic_issue = known[key]
+            deterministic_fields = issue.get("editable_fields")
+            if isinstance(deterministic_fields, list):
+                semantic_fields = semantic_issue.get("editable_fields", [])
+                semantic_issue["editable_fields"] = list(dict.fromkeys([*semantic_fields, *deterministic_fields]))
+            semantic_issue["deterministic_evidence"] = issue.get("evidence")
+        scene_revisions = []
+        for issue in issues:
+            if not isinstance(issue, dict) or issue.get("scene_num") is None:
+                continue
+            replacements = issue.get("replacement_fields")
+            if not isinstance(replacements, dict):
+                field = issue.get("field")
+                replacements = {field: issue["replacement_value"]} if field and "replacement_value" in issue else {}
+            scene_revisions.extend(
+                {
+                    "scene_num": issue["scene_num"],
+                    "field_to_change": field,
+                    "replacement_value": replacement,
+                }
+                for field, replacement in replacements.items()
+            )
         plan_updates = {
             str(issue["field"]): issue["replacement_value"]
             for issue in issues
@@ -1755,6 +1834,7 @@ class PromptPlannerAgent:
         self.last_response = response
         candidate = response.get("planner_decision", response.get("production_plan", response))
         last_plan: ProductionPlan | None = None
+        rejected_transactions: list[dict[str, Any]] = []
         for attempt in range(0, self.max_plan_revisions + 1):
             try:
                 if "lyric_segments" in candidate and "rhyme" in candidate:
@@ -1832,12 +1912,14 @@ class PromptPlannerAgent:
                 if transaction["accepted"]:
                     candidate = reviewer_candidate
                     continue
+                rejected_transactions.append({"source": "semantic_reviewer", **transaction})
             revision_context = {
                 "response_key": f"planner_revision_{attempt + 1}",
                 "input": _planner_input_context(rhyme),
                 "previous_decision": candidate,
                 "production_plan": plan.to_dict(),
                 "validation_issues": merged_issues,
+                "rejected_transactions": rejected_transactions[-3:],
                 "instruction": (
                     "Return only a targeted revision patch matching the supplied schema, never a complete plan. "
                     "Treat each issue's message, scene_num, editable_fields or field, evidence, and suggested change as "
@@ -1873,6 +1955,8 @@ class PromptPlannerAgent:
                     "transaction": transaction,
                 }
             )
+            if not transaction["accepted"]:
+                rejected_transactions.append({"source": "scene_editor", **transaction})
         if last_plan is not None:
             return last_plan
         fallback = self._diagnostic_rejected_plan(rhyme, self.last_error or "planner did not produce a convertible plan")

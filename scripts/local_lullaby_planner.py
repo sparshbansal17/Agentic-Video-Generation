@@ -113,9 +113,8 @@ def build_user_prompt(payload: dict[str, Any]) -> str:
                 "- Preserve the lead character and the scene's lyric meaning while simplifying the interaction.\n"
             )
         revision_block = (
-            "\nThis is a revision request. Fix every validation issue below by returning a complete replacement "
-            "planner decision JSON. Preserve supplied lyrics exactly and edit the structured scene descriptions, "
-            "camera fields, characters, and continuity fields before prompt compilation.\n"
+            "\nThis is a revision request. Fix every validation issue below with a targeted patch. "
+            "Preserve supplied lyrics exactly and edit only authorized structured fields before prompt compilation.\n"
             f"Validation issues JSON:\n{json.dumps(validation_issues, indent=2)}\n"
             f"{unsafe_instruction}{diversity_instruction}{narrative_instruction}{visual_action_instruction}{camera_instruction}{crowd_instruction}\n"
             "GENERAL CORRECTION CONTRACT:\n"
@@ -124,6 +123,13 @@ def build_user_prompt(payload: dict[str, Any]) -> str:
             "- Compare the replacement against previous_decision before answering; every cited defect must have a visible JSON-field change.\n"
             "- Do not insert canned topic imagery or substitute a generic bedtime scene unrelated to the supplied input.\n"
         )
+        rejected_transactions = context.get("rejected_transactions") or []
+        if rejected_transactions:
+            revision_block += (
+                "Previous patches were rejected transactionally. Do not repeat them; correct the reported reason and "
+                "return different, type-compatible values for every still-cited field:\n"
+                f"{json.dumps(rejected_transactions, indent=2)}\n"
+            )
         if previous_decision:
             revision_block += f"Previous planner decision JSON:\n{json.dumps(previous_decision, indent=2)}\n"
         return (

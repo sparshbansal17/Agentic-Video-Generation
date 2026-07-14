@@ -29,6 +29,11 @@ def build_user_prompt(payload: dict[str, Any]) -> str:
         "and meaning, setup-development-payoff, redundant beats, character motivation/plurality, world geography, "
         "emotional progression, visual-versus-audio actions, camera motivation, cut continuity, and agreement among "
         "scene_goal, lyric_interpretation, setting, action, and camera. Do not review fields absent from review_plan."
+        " Treat adjective-only or camera-only changes over the same action as repetition. Check that spatial relationships "
+        "are physically stageable, every supporting character contributes to the lyric or causal story, and the final beat "
+        "provides a visible payoff. Do not reject harmless expressive detail merely because it is more specific than the "
+        "scene_goal; reject only material semantic defects. Before returning passed=true, explicitly compare each scene's "
+        "observable action with both its lyric and the adjacent scene actions."
     )
 
 

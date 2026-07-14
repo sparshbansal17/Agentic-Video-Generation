@@ -575,6 +575,78 @@ class AgenticArchitectureTests(unittest.TestCase):
         self.assertEqual(report["scores"], {"prompt_generatability": 1.0, "lyric_alignment": 0.8})
         self.assertEqual(report["revision_notes"], ["Resolve the camera field"])
 
+    def test_critic_recovers_targeted_value_from_malformed_full_plan_suggestion(self):
+        decision = self._structured_decision(["A lamb follows a child"])
+        plan = PromptPlannerAgent(MockAgentBackend(responses={"planner": decision}), max_plan_revisions=0).plan(
+            NurseryRhymeInput(topic_or_name="original following song")
+        )
+        current_action = plan.scenes[0].action
+        malformed = {"scenes": [{"scene_num": 1, "action": current_action}], "lyrics": ["changed"]}
+        critic = PlanCriticAgent(MockAgentBackend(responses={"plan_critic": {
+            "passed": False,
+            "issues": [{
+                "code": "lyric_alignment",
+                "scene_num": 1,
+                "message": "the following action is not visible",
+                "field": "action",
+                "evidence": {
+                    "observed": current_action,
+                    "expected": "the lamb takes two small steps behind the child",
+                    "source": "lyric_line",
+                },
+                "suggested_change": "the lamb takes two small steps behind the child",
+                "replacement_value": malformed,
+            }],
+        }}))
+
+        report = critic.review(plan, validate_plan_semantics(plan, require_reviewer_approval=False))
+
+        revision = report["targeted_revision"]["scene_revisions"]
+        self.assertEqual(revision, [{
+            "scene_num": 1,
+            "field_to_change": "action",
+            "replacement_value": "the lamb takes two small steps behind the child",
+        }])
+
+    def test_critic_preserves_deterministic_edit_scope_for_duplicate_issue(self):
+        decision = self._structured_decision(["A cradle stays secure"])
+        decision["scenes"][0]["scene_goal"] = "show the cradle falling"
+        decision["scenes"][0]["lyric_interpretation"] = "the cradle is falling"
+        decision["scenes"][0]["action"] = "the cradle is falling"
+        plan = PromptPlannerAgent(MockAgentBackend(responses={"planner": decision}), max_plan_revisions=0).plan(
+            NurseryRhymeInput(topic_or_name="original secure cradle song")
+        )
+        deterministic = validate_plan_semantics(plan, require_reviewer_approval=False)
+        critic = PlanCriticAgent(MockAgentBackend(responses={"plan_critic": {
+            "passed": False,
+            "issues": [{
+                "code": "unsafe_visual_action",
+                "scene_num": 1,
+                "message": "the depicted motion is unsafe",
+                "field": "scene_goal",
+                "evidence": {
+                    "observed": "show the cradle falling",
+                    "expected": "show the cradle remaining securely supported",
+                    "source": "scene_goal",
+                },
+                "suggested_change": "show the cradle remaining securely supported",
+                "replacement_value": {
+                    "scene_goal": "show the cradle remaining securely supported",
+                    "lyric_interpretation": "the cradle remains securely supported",
+                    "action": "the cradle sways gently while securely supported",
+                },
+            }],
+        }}))
+
+        report = critic.review(plan, deterministic)
+
+        issue = next(item for item in report["issues"] if item["code"] == "unsafe_visual_action")
+        self.assertIn("action", issue["editable_fields"])
+        self.assertEqual(
+            {item["field_to_change"] for item in report["targeted_revision"]["scene_revisions"]},
+            {"scene_goal", "lyric_interpretation", "action"},
+        )
+
     def test_ungrounded_critic_claim_is_advisory_not_blocking(self):
         decision = self._structured_decision(["A lamb looks up with curiosity"])
         plan = PromptPlannerAgent(MockAgentBackend(responses={"planner": decision}), max_plan_revisions=0).plan(
