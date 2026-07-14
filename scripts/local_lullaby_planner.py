@@ -17,6 +17,12 @@ def extract_json(text: str) -> dict[str, Any]:
     try:
         return json.loads(cleaned)
     except json.JSONDecodeError:
+        try:
+            decoded, _end = json.JSONDecoder().raw_decode(cleaned.lstrip())
+            if isinstance(decoded, dict):
+                return decoded
+        except json.JSONDecodeError:
+            pass
         start = cleaned.find("{")
         end = cleaned.rfind("}")
         if start >= 0 and end > start:
