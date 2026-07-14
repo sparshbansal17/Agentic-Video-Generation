@@ -1724,7 +1724,7 @@ class PromptPlannerAgent:
             except Exception as exc:
                 self.last_error = str(exc)
                 self.agent_steps.append({"kind": "planner_revision", "attempt": attempt + 2, "status": "backend_error", "error": str(exc), "context": revision_context})
-                break
+                continue
             response = _constrain_revision_to_issues(response, merged_issues)
             candidate = _apply_planner_revision(candidate, response)
         if last_plan is not None:
