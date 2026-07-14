@@ -106,6 +106,7 @@ def workflow(args: argparse.Namespace) -> int:
         execute_video=args.execute_video,
         character_db_path=args.character_db,
         character_bank_path=args.character_bank,
+        production_plan_path=args.production_plan,
         planner_backend=args.planner_backend,
         planner_command=args.planner_command,
         plan_critic_command=args.plan_critic_command,
@@ -203,6 +204,7 @@ def build_parser() -> argparse.ArgumentParser:
         command.add_argument("--seed", type=int, default=0)
         command.add_argument("--character-db")
         command.add_argument("--character-bank")
+        command.add_argument("--production-plan", help="Reuse an approved production_plan.json without replanning")
         command.add_argument("--planner-backend", choices=["mock", "command"], default="mock")
         command.add_argument("--planner-command")
         command.add_argument("--plan-critic-command")

@@ -30,9 +30,14 @@ PLANNER_MODEL="${PLANNER_MODEL:-Qwen/Qwen2-VL-7B-Instruct}"
 REVIEWER_MODEL="${REVIEWER_MODEL:-Qwen/Qwen2-VL-7B-Instruct}"
 SEED="${SEED:-720}"
 CHARACTER_BANK="${CHARACTER_BANK:-}"
+FINALIZED_PLAN="${FINALIZED_PLAN:-}"
 CHARACTER_BANK_ARGS=()
 if [ -n "${CHARACTER_BANK}" ]; then
   CHARACTER_BANK_ARGS=(--character-bank "${CHARACTER_BANK}")
+fi
+FINALIZED_PLAN_ARGS=()
+if [ -n "${FINALIZED_PLAN}" ]; then
+  FINALIZED_PLAN_ARGS=(--production-plan "${FINALIZED_PLAN}")
 fi
 
 module load python
@@ -76,6 +81,7 @@ python -m storymem_agentic.cli iterate \
   --max-iterations 2 \
   --seed "${SEED}" \
   "${CHARACTER_BANK_ARGS[@]}" \
+  "${FINALIZED_PLAN_ARGS[@]}" \
   --storymem-dir "${STORYMEM_DIR}" \
   --t2v-model-path "${T2V_MODEL_PATH}" \
   --i2v-model-path "${I2V_MODEL_PATH}" \

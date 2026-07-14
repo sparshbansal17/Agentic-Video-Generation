@@ -505,6 +505,7 @@ def run_workflow(
     execute_video: bool = False,
     character_db_path: str | Path | None = None,
     character_bank_path: str | Path | None = None,
+    production_plan_path: str | Path | None = None,
     planner_backend: str = "mock",
     planner_command: str | None = None,
     plan_critic_command: str | None = None,
@@ -557,7 +558,26 @@ def run_workflow(
         critic=PlanCriticAgent(critic_backend),
         max_plan_revisions=max_plan_revisions,
     )
-    plan = planner.plan(nursery_input)
+    if production_plan_path:
+        source_plan_path = Path(production_plan_path)
+        plan = ProductionPlan.from_dict(json.loads(source_plan_path.read_text(encoding="utf-8")))
+        validation_report = validate_plan_semantics(plan, require_reviewer_approval=True)
+        if not validation_report.get("passed"):
+            raise ValueError(f"supplied production plan is not approved: {source_plan_path}")
+        source_root = source_plan_path.parent.parent.parent
+        source_critic_path = source_root / "plan_critic_report.json"
+        critic_report = (
+            json.loads(source_critic_path.read_text(encoding="utf-8"))
+            if source_critic_path.exists()
+            else {"passed": True, "issues": [], "scores": {}, "revision_notes": []}
+        )
+        if not critic_report.get("passed"):
+            raise ValueError(f"supplied production plan lacks semantic reviewer approval: {source_plan_path}")
+        planner.last_validation_report = validation_report
+        planner.last_critic_report = critic_report
+        planner.last_context = {"production_plan_path": str(source_plan_path), "reused_finalized_plan": True}
+    else:
+        plan = planner.plan(nursery_input)
     write_json(root / "nursery_rhyme_input.json", nursery_input.to_dict())
     validation_report = planner.last_validation_report or validate_plan_semantics(plan)
     critic_report = planner.last_critic_report or {"passed": True, "issues": [], "scores": {}, "revision_notes": []}
@@ -596,6 +616,8 @@ def run_workflow(
         write_json(root / f"{kind}_{step_counters[kind]:02d}.json", step)
     planner_output = {
         "backend": planner_backend,
+        "production_plan_path": str(production_plan_path) if production_plan_path else None,
+        "reused_finalized_plan": bool(production_plan_path),
         "command": planner_command,
         "plan_critic_command": plan_critic_command,
         "max_plan_revisions": max_plan_revisions,
