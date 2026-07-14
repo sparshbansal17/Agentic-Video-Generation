@@ -340,16 +340,27 @@ class AgenticArchitectureTests(unittest.TestCase):
     def test_planner_revision_uses_structured_feedback_before_compilation(self):
         initial = self._structured_decision(["Rain, rain, go away", "Children want to play"], scene_suffix=" initial", character_label="rain_child")
         initial["scenes"][0]["safety_adaptation"] = ""
-        revised = self._structured_decision(["Rain, rain, go away", "Children want to play"], scene_suffix=" revised", character_label="rain_child")
-        backend = MockAgentBackend(responses={"planner": initial, "planner_revision_1": revised})
+        patch = {
+            "scene_revisions": [{
+                "scene_num": 1,
+                "field_to_change": "safety_adaptation",
+                "replacement_value": "No text, no dialogue, no scary imagery, and only safe supported action",
+            }],
+            "plan_updates": {},
+        }
+        backend = MockAgentBackend(responses={"planner": initial, "planner_revision_1": patch})
 
         planner = PromptPlannerAgent(backend, max_plan_revisions=1)
         plan = planner.plan(NurseryRhymeInput(topic_or_name="Rain Rain Go Away"))
 
         self.assertEqual(len(plan.scenes), 2)
-        self.assertIn("revised", plan.scenes[1].description)
+        self.assertIn("safe supported action", plan.scenes[0].safety_adaptation)
         self.assertTrue(validate_plan_semantics(plan)["passed"])
-        self.assertEqual([step["kind"] for step in planner.agent_steps], ["planner_draft", "plan_review", "planner_revision", "plan_review"])
+        self.assertEqual(
+            [step["kind"] for step in planner.agent_steps],
+            ["planner_draft", "plan_review", "planner_revision", "planner_revision", "plan_review"],
+        )
+        self.assertEqual(planner.agent_steps[2]["status"], "editor_patch_applied")
 
     def test_visible_bank_character_must_be_selected_for_scene(self):
         decision = self._structured_decision(["A fox greets an owl"], character_label="fox")
@@ -429,13 +440,24 @@ class AgenticArchitectureTests(unittest.TestCase):
             "scene_revisions": [
                 {"scene_num": 1, "field_to_change": "camera", "replacement_value": "unauthorized camera"},
                 {"scene_num": 3, "field_to_change": "camera", "replacement_value": "motivated close-up"},
+                {"scene_num": 3, "field_to_change": "camera", "replacement_value": {"camera": "wrong type"}},
             ]
         }
         issues = [{"code": "repeated_camera_coverage", "scene_num": 3, "field": "camera"}]
+        previous = {"scenes": [{"scene_num": 3, "camera": "original camera"}]}
 
-        constrained = _constrain_revision_to_issues(patch, issues)
+        constrained = _constrain_revision_to_issues(patch, issues, previous)
 
         self.assertEqual(constrained["scene_revisions"], [patch["scene_revisions"][1]])
+
+    def test_revision_contract_rejects_complete_plan_replacement(self):
+        previous = self._structured_decision(["A fox waves"], character_label="fox")
+        replacement = self._structured_decision(["A different story"], character_label="owl")
+        issues = [{"code": "lyric_alignment", "scene_num": 1, "field": "action"}]
+
+        constrained = _constrain_revision_to_issues(replacement, issues, previous)
+
+        self.assertEqual(constrained, {"scene_revisions": [], "plan_updates": {}})
 
     def test_unchanged_invalid_revision_relies_on_persistent_real_issue(self):
         invalid = self._structured_decision(["Copper kite", "Velvet hill"], character_label="fox")
@@ -457,10 +479,22 @@ class AgenticArchitectureTests(unittest.TestCase):
         initial = self._structured_decision(["High branch line", "Safe landing line"], character_label="guide")
         initial["scenes"][0]["action"] = "the small guide falls from a high platform"
         initial["scenes"][0]["safety_adaptation"] = "no text, no dialogue, no inset frame, no scary imagery"
-        revised = self._structured_decision(["High branch line", "Safe landing line"], scene_suffix=" revised", character_label="guide")
-        revised["scenes"][0]["action"] = "the small guide gently lowers on a supported cushion path"
-        revised["scenes"][0]["safety_adaptation"] = "supported safely, no dialogue, no generated text, no inset frame, no scary imagery"
-        backend = MockAgentBackend(responses={"planner": initial, "planner_revision_1": revised})
+        patch = {
+            "scene_revisions": [
+                {
+                    "scene_num": 1,
+                    "field_to_change": "action",
+                    "replacement_value": "the small guide gently lowers on a supported cushion path",
+                },
+                {
+                    "scene_num": 1,
+                    "field_to_change": "safety_adaptation",
+                    "replacement_value": "supported safely, no dialogue, no generated text, no inset frame, no scary imagery",
+                },
+            ],
+            "plan_updates": {},
+        }
+        backend = MockAgentBackend(responses={"planner": initial, "planner_revision_1": patch})
 
         planner = PromptPlannerAgent(backend, max_plan_revisions=1)
         plan = planner.plan(NurseryRhymeInput(topic_or_name="generic safety lullaby"))

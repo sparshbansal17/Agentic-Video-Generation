@@ -786,6 +786,7 @@ def validate_plan_semantics(plan: ProductionPlan, *, require_reviewer_approval: 
                     "field": "selected_characters",
                     "message": "a five-second preschool shot should focus on no more than three visible characters",
                     "evidence": {"selected_character_count": len(scene.selected_characters)},
+                    "editable_fields": ["selected_characters", "subjects", "setting", "action"],
                 }
             )
         selected_labels = {
@@ -807,6 +808,7 @@ def validate_plan_semantics(plan: ProductionPlan, *, require_reviewer_approval: 
                     "scene_num": scene.scene_num,
                     "field": "selected_characters",
                     "message": "the scene names more than three visible bank characters; simplify the cast and all references together",
+                    "editable_fields": ["selected_characters", "subjects", "setting", "action"],
                     "evidence": {
                         "observed": json.dumps(sorted(selected_labels | {_character_lookup_key(p.label) for p in missing_profiles})),
                         "expected": "one to three lyric-relevant visible characters",
@@ -859,6 +861,9 @@ def validate_plan_semantics(plan: ProductionPlan, *, require_reviewer_approval: 
                     "scene_num": scene.scene_num,
                     "message": "scene contains an unsafe visual action that must be adapted before generation",
                     "evidence": safety_hits,
+                    "editable_fields": [
+                        "scene_goal", "lyric_interpretation", "setting", "subjects", "action", "camera", "safety_adaptation"
+                    ],
                 }
             )
         action_lower = scene.action.lower().strip()
@@ -955,6 +960,7 @@ def validate_plan_semantics(plan: ProductionPlan, *, require_reviewer_approval: 
                     "scene_num": current.scene_num,
                     "message": "consecutive scenes must materially change setting, action, or camera composition",
                     "evidence": {"matches_scene_num": previous.scene_num, "unchanged_fields": unchanged},
+                    "editable_fields": ["setting", "action", "camera"],
                 }
             )
     return {
@@ -1537,33 +1543,142 @@ def _apply_planner_revision(previous: dict[str, Any], response: dict[str, Any]) 
     return revised
 
 
-def _constrain_revision_to_issues(response: dict[str, Any], issues: list[dict[str, Any]]) -> dict[str, Any]:
+def _constrain_revision_to_issues(
+    response: dict[str, Any],
+    issues: list[dict[str, Any]],
+    previous: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     revisions = response.get("scene_revisions")
     if not isinstance(revisions, list):
-        return response
-    exact = {
-        (issue.get("scene_num"), str(issue.get("field")))
-        for issue in issues
-        if isinstance(issue, dict) and issue.get("scene_num") is not None and issue.get("field")
+        return {"scene_revisions": [], "plan_updates": {}}
+    allowed: set[tuple[Any, str]] = set()
+    allowed_plan_fields: set[str] = set()
+    for issue in issues:
+        if not isinstance(issue, dict):
+            continue
+        fields = issue.get("editable_fields")
+        if not isinstance(fields, list):
+            fields = [issue.get("field")] if issue.get("field") else []
+        if issue.get("scene_num") is None:
+            allowed_plan_fields.update(str(field) for field in fields if field)
+        else:
+            allowed.update((issue.get("scene_num"), str(field)) for field in fields if field)
+    previous_scenes = {
+        int(scene.get("scene_num", index)): scene
+        for index, scene in enumerate((previous or {}).get("scenes", []), start=1)
+        if isinstance(scene, dict)
     }
-    broad_scenes = {
-        issue.get("scene_num")
-        for issue in issues
-        if isinstance(issue, dict)
-        and issue.get("scene_num") is not None
-        and issue.get("code") in {"unsafe_visual_action", "repeated_scene_staging", "overcrowded_five_second_shot"}
-    }
+
+    def valid_revision(revision: Any) -> bool:
+        if not isinstance(revision, dict):
+            return False
+        pair = (revision.get("scene_num"), str(revision.get("field_to_change")))
+        replacement = revision.get("replacement_value")
+        if pair not in allowed or replacement in (None, "", [], {}):
+            return False
+        original = previous_scenes.get(revision.get("scene_num"), {}).get(revision.get("field_to_change"))
+        if original is None:
+            return previous is None
+        if isinstance(original, bool):
+            return isinstance(replacement, bool)
+        return isinstance(replacement, type(original))
+
     filtered = [
         revision
         for revision in revisions
-        if isinstance(revision, dict)
-        and revision.get("replacement_value") not in (None, "", [], {})
-        and (
-            revision.get("scene_num") in broad_scenes
-            or (revision.get("scene_num"), str(revision.get("field_to_change"))) in exact
-        )
+        if valid_revision(revision)
     ]
-    return {**response, "scene_revisions": filtered}
+    filtered_plan_updates = {}
+    for field, replacement in response.get("plan_updates", {}).items() if isinstance(response.get("plan_updates"), dict) else []:
+        original = (previous or {}).get(field)
+        if field in allowed_plan_fields and replacement not in (None, "", [], {}) and (
+            original is None or isinstance(replacement, type(original))
+        ):
+            filtered_plan_updates[field] = replacement
+    return {**response, "scene_revisions": filtered, "plan_updates": filtered_plan_updates}
+
+
+def _issue_fingerprint(issue: Any) -> tuple[str, Any, str]:
+    if not isinstance(issue, dict):
+        return (str(issue), None, "")
+    return (str(issue.get("code", "")), issue.get("scene_num"), str(issue.get("field", "")))
+
+
+def _revision_patch_schema(issues: list[dict[str, Any]]) -> dict[str, Any]:
+    """Build the editor contract from reviewer-authorized locations."""
+    scene_numbers = sorted({issue.get("scene_num") for issue in issues if issue.get("scene_num") is not None})
+    fields = sorted({
+        str(field)
+        for issue in issues
+        for field in (
+            issue.get("editable_fields")
+            if isinstance(issue.get("editable_fields"), list)
+            else [issue.get("field")]
+        )
+        if field
+    })
+    scene_num_schema: dict[str, Any] = {"type": "integer"}
+    field_schema: dict[str, Any] = {"type": "string"}
+    if scene_numbers:
+        scene_num_schema["enum"] = scene_numbers
+    if fields:
+        field_schema["enum"] = fields
+    return {
+        "type": "object",
+        "properties": {
+            "scene_revisions": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "scene_num": scene_num_schema,
+                        "field_to_change": field_schema,
+                        "replacement_value": {},
+                    },
+                    "required": ["scene_num", "field_to_change", "replacement_value"],
+                    "additionalProperties": False,
+                },
+            },
+            "plan_updates": {"type": "object"},
+        },
+        "required": ["scene_revisions", "plan_updates"],
+        "additionalProperties": False,
+    }
+
+
+def _apply_revision_transaction(
+    previous: dict[str, Any],
+    response: dict[str, Any],
+    issues: list[dict[str, Any]],
+    rhyme: NurseryRhymeInput,
+    *,
+    target_fps: int,
+    baseline_report: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    constrained = _constrain_revision_to_issues(response, issues, previous)
+    revised = _apply_planner_revision(previous, constrained)
+    if revised == previous:
+        return previous, {"accepted": False, "reason": "no_valid_scoped_changes", "patch": constrained}
+    try:
+        revised_plan = (
+            ProductionPlan.from_dict(revised)
+            if "lyric_segments" in revised and "rhyme" in revised
+            else production_plan_from_planner_decision(rhyme, revised, target_fps=target_fps)
+        )
+        revised_report = validate_plan_semantics(revised_plan, require_reviewer_approval=False)
+    except Exception as exc:
+        return previous, {"accepted": False, "reason": "revision_conversion_failed", "error": str(exc), "patch": constrained}
+    before = {_issue_fingerprint(issue) for issue in baseline_report.get("issues", [])}
+    after = {_issue_fingerprint(issue) for issue in revised_report.get("issues", [])}
+    introduced = sorted(after - before, key=str)
+    if introduced:
+        return previous, {
+            "accepted": False,
+            "reason": "revision_introduced_validation_defects",
+            "introduced_issues": introduced,
+            "patch": constrained,
+        }
+    return revised, {"accepted": True, "reason": "scoped_revision_validated", "patch": constrained}
 
 
 class PromptPlannerAgent:
@@ -1697,17 +1812,24 @@ class PromptPlannerAgent:
             if isinstance(targeted_revision, dict) and (
                 targeted_revision.get("scene_revisions") or targeted_revision.get("plan_updates")
             ):
-                reviewer_candidate = _apply_planner_revision(candidate, targeted_revision)
-                if reviewer_candidate != candidate:
-                    self.agent_steps.append(
-                        {
-                            "kind": "planner_revision",
-                            "attempt": attempt + 2,
-                            "status": "reviewer_targeted_patch_applied",
-                            "source": "PlanCriticAgent",
-                            "targeted_revision": targeted_revision,
-                        }
-                    )
+                reviewer_candidate, transaction = _apply_revision_transaction(
+                    candidate,
+                    targeted_revision,
+                    merged_issues,
+                    rhyme,
+                    target_fps=self.target_fps,
+                    baseline_report=deterministic_report,
+                )
+                self.agent_steps.append(
+                    {
+                        "kind": "planner_revision",
+                        "attempt": attempt + 2,
+                        "status": "reviewer_targeted_patch_applied" if transaction["accepted"] else "reviewer_targeted_patch_rejected",
+                        "source": "PlanCriticAgent",
+                        "transaction": transaction,
+                    }
+                )
+                if transaction["accepted"]:
                     candidate = reviewer_candidate
                     continue
             revision_context = {
@@ -1717,24 +1839,40 @@ class PromptPlannerAgent:
                 "production_plan": plan.to_dict(),
                 "validation_issues": merged_issues,
                 "instruction": (
-                    "Return a complete replacement planner decision JSON. Preserve supplied lyrics exactly. "
-                    "Edit structured scene descriptions/camera fields to fix only the listed issues before prompt compilation. "
-                    "For unsafe_visual_action, use issue evidence excerpts to rewrite scene_goal, lyric_interpretation, "
-                    "action, setting, subjects, camera, and safety_adaptation so unsupported descent, breakage, "
-                    "dropping, crashing, impact, or other hazardous motion is replaced by visibly safe supported motion. "
-                    "Remove hazardous wording from the scene instead of only adding a negation. For repeated_scene_staging, "
-                    "materially change setting, action, and composition while preserving character continuity. For every "
-                    "other issue code, use its message, scene_num, field, and evidence as binding acceptance criteria."
+                    "Return only a targeted revision patch matching the supplied schema, never a complete plan. "
+                    "Treat each issue's message, scene_num, editable_fields or field, evidence, and suggested change as "
+                    "binding acceptance criteria. Change only authorized locations, preserve unrelated creative decisions, "
+                    "and make replacement values the same JSON type as the existing values. Resolve the underlying visual "
+                    "or narrative defect rather than merely adding a disclaimer or negation."
                 ),
             }
             try:
-                response = self.backend.generate_json(self.last_prompt, self.last_schema, revision_context)
+                response = self.backend.generate_json(
+                    self.last_prompt,
+                    _revision_patch_schema(merged_issues),
+                    revision_context,
+                )
             except Exception as exc:
                 self.last_error = str(exc)
                 self.agent_steps.append({"kind": "planner_revision", "attempt": attempt + 2, "status": "backend_error", "error": str(exc), "context": revision_context})
                 continue
-            response = _constrain_revision_to_issues(response, merged_issues)
-            candidate = _apply_planner_revision(candidate, response)
+            candidate, transaction = _apply_revision_transaction(
+                candidate,
+                response,
+                merged_issues,
+                rhyme,
+                target_fps=self.target_fps,
+                baseline_report=deterministic_report,
+            )
+            self.agent_steps.append(
+                {
+                    "kind": "planner_revision",
+                    "attempt": attempt + 2,
+                    "status": "editor_patch_applied" if transaction["accepted"] else "editor_patch_rejected",
+                    "source": "ScenePlannerAgent",
+                    "transaction": transaction,
+                }
+            )
         if last_plan is not None:
             return last_plan
         fallback = self._diagnostic_rejected_plan(rhyme, self.last_error or "planner did not produce a convertible plan")
