@@ -74,7 +74,11 @@ export TMPDIR="${TMPDIR:-${AGENTIC_DIR}/.tmp}"
 mkdir -p "${AGENTIC_DIR}/logs" "${OUTPUT_PATH}" "${TMPDIR}"
 if [ -n "${REUSE_VIDEO_DIR}" ]; then
   mkdir -p "${OUTPUT_PATH}/iterations/001/generated"
-  cp -a "${REUSE_VIDEO_DIR}/." "${OUTPUT_PATH}/iterations/001/generated/"
+  shopt -s nullglob
+  for artifact in "${REUSE_VIDEO_DIR}"/*.mp4 "${REUSE_VIDEO_DIR}"/*.jpg "${REUSE_VIDEO_DIR}"/*.ass; do
+    cp -a "${artifact}" "${OUTPUT_PATH}/iterations/001/generated/"
+  done
+  shopt -u nullglob
 fi
 
 PLANNER_CMD="${VENV_DIR}/bin/python ${AGENTIC_DIR}/scripts/local_lullaby_planner.py --model ${PLANNER_MODEL} --debug-output ${OUTPUT_PATH}/planner_raw_output.txt"

@@ -108,6 +108,24 @@ def validate_reports(response: dict[str, Any]) -> None:
         raise ValueError(f"review output missing reviewers: {', '.join(missing)}")
 
 
+def missing_reviewers(response: dict[str, Any]) -> list[str]:
+    reports = response.get("reports")
+    if not isinstance(reports, list):
+        return list(EXPECTED_REVIEWERS)
+    names = {item.get("reviewer") for item in reports if isinstance(item, dict)}
+    return [name for name in EXPECTED_REVIEWERS if name not in names]
+
+
+def retry_prompt(compact: dict[str, Any], reviewers: list[str]) -> str:
+    return (
+        "The previous response violated the JSON panel contract. Return one JSON object with a reports array "
+        f"containing exactly these missing reviewers: {', '.join(reviewers)}. Each report must use only reviewer, "
+        "passed, scores with one numeric overall key, failure_reasons, and evidence with sampled_frames_checked, "
+        "one-sentence observation, and optional target_scenes. No markdown, nested evidence, or extra keys. "
+        f"Compact context: {json.dumps(compact, separators=(',', ':'))[:16000]}"
+    )
+
+
 def generate_with_qwen_vl(model_name: str, prompt: str, image_paths: list[str], max_new_tokens: int) -> str:
     import torch
     from qwen_vl_utils import process_vision_info
@@ -165,15 +183,36 @@ def main() -> int:
     compact, image_paths = compact_context(payload.get("context", {}), args.max_frames)
     prompt = build_prompt(payload, compact)
     raw = generate_with_qwen_vl(args.model, prompt, image_paths, args.max_new_tokens)
-    if args.debug_output:
-        Path(args.debug_output).parent.mkdir(parents=True, exist_ok=True)
-        Path(args.debug_output).write_text(raw, encoding="utf-8")
+    retry_raw = ""
     try:
         response = extract_json(raw)
+    except Exception:
+        response = {"reports": []}
+    missing = missing_reviewers(response)
+    if missing:
+        retry_raw = generate_with_qwen_vl(
+            args.model,
+            retry_prompt(compact, missing),
+            image_paths,
+            args.max_new_tokens,
+        )
+        try:
+            retry_response = extract_json(retry_raw)
+            retry_reports = retry_response.get("reports")
+            if not isinstance(retry_reports, list) and retry_response.get("reviewer"):
+                retry_reports = [retry_response]
+            if isinstance(retry_reports, list):
+                response.setdefault("reports", []).extend(retry_reports)
+        except Exception:
+            pass
+    if args.debug_output:
+        Path(args.debug_output).parent.mkdir(parents=True, exist_ok=True)
+        Path(args.debug_output).write_text(raw + ("\n\nRETRY:\n" + retry_raw if retry_raw else ""), encoding="utf-8")
+    try:
         validate_reports(response)
     except Exception as exc:
         print(f"local_lullaby_reviewer invalid model output: {exc}", file=sys.stderr)
-        print(raw[:4000], file=sys.stderr)
+        print((retry_raw or raw)[:4000], file=sys.stderr)
         return 4
     print(json.dumps(response))
     return 0
