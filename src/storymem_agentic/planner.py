@@ -869,7 +869,7 @@ def validate_plan_semantics(plan: ProductionPlan, *, require_reviewer_approval: 
                     "evidence": {"observed": scene.action, "expected": "visible subject action", "source": "action"},
                 }
             )
-        if re.search(r"\b(?:sing|sings|singing|sang|tune|music|think|thinks|thinking|reflect|reflects|reflecting|enjoy|enjoys|enjoying)\b", action_lower):
+        if re.search(r"\b(?:sing|sings|singing|sang|say|says|saying|ask|asks|asking|speak|speaks|speaking|tune|music|think|thinks|thinking|reflect|reflects|reflecting|enjoy|enjoys|enjoying)\b", action_lower):
             replacement = _visible_action_replacement(scene.action)
             issues.append(
                 {

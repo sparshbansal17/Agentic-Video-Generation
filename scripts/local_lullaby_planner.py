@@ -20,7 +20,13 @@ def extract_json(text: str) -> dict[str, Any]:
         start = cleaned.find("{")
         end = cleaned.rfind("}")
         if start >= 0 and end > start:
-            return json.loads(cleaned[start : end + 1])
+            candidate = cleaned[start : end + 1]
+            try:
+                return json.loads(candidate)
+            except json.JSONDecodeError:
+                repaired = re.sub(r"}\]\s*,\s*(?=\{\s*\"scene_num\")", "}, ", candidate)
+                if repaired != candidate:
+                    return json.loads(repaired)
         raise
 
 
@@ -79,7 +85,7 @@ def build_user_prompt(payload: dict[str, Any]) -> str:
                 "\nCRITICAL VISIBLE-ACTION REVISION REQUIRED:\n"
                 "- Edit only each cited action field. Do not return camera edits.\n"
                 "- Preserve any physical activity already present, but replace singing, music, thinking, reflecting, "
-                "or camera language with a visible pose, gaze, facial expression, or gesture.\n"
+                "spoken dialogue, or camera language with a visible pose, gaze, facial expression, or gesture.\n"
             )
         camera_instruction = ""
         if "repeated_camera_coverage" in issue_codes:
