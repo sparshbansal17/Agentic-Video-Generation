@@ -880,7 +880,6 @@ def run_workflow(
             and generate_audio
             and audio_aligner == "whisperx"
             and final_candidate.exists()
-            and not whisperx_alignment_path.exists()
         ):
             run_audio_alignment(final_candidate, "whisperx")
 
