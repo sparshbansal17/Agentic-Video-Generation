@@ -209,6 +209,7 @@ def analyze_whisperx_alignment(
     *,
     wer_threshold: float = 0.25,
     drift_tolerance_seconds: float = 1.0,
+    enforce_scene_windows: bool = True,
 ) -> dict[str, Any]:
     reference = " ".join(reference_lines)
     hypothesis = transcript_from_words(aligned_words)
@@ -222,17 +223,19 @@ def analyze_whisperx_alignment(
         observed_start = item["observed_start_seconds"]
         observed_end = item["observed_end_seconds"]
         if observed_start is None or observed_end is None:
+            if not enforce_scene_windows:
+                continue
             failures.append(f"line_{item['line_index']}_missing_words")
             if item["line_index"] == final_line_index:
                 failures.append(f"line_{item['line_index']}_final_line_incomplete")
             continue
-        if item["matched_ratio"] < 0.8:
+        if enforce_scene_windows and item["matched_ratio"] < 0.8:
             failures.append(f"line_{item['line_index']}_partial_words")
-        if item["matched_word_count"] < item["expected_word_count"]:
+        if enforce_scene_windows and item["matched_word_count"] < item["expected_word_count"]:
             failures.append(f"line_{item['line_index']}_missing_words")
             if item["line_index"] == final_line_index:
                 failures.append(f"line_{item['line_index']}_final_line_incomplete")
-        for token, counts in item.get("repeated_word_omissions", {}).items():
+        for token, counts in item.get("repeated_word_omissions", {}).items() if enforce_scene_windows else []:
             failures.append(
                 f"line_{item['line_index']}_omitted_repeated_{token}_{counts['matched']}_of_{counts['expected']}"
             )
@@ -240,9 +243,9 @@ def analyze_whisperx_alignment(
         end_drift = observed_end - planned_end
         item["start_drift_seconds"] = round(start_drift, 3)
         item["end_drift_seconds"] = round(end_drift, 3)
-        if observed_start < planned_start - drift_tolerance_seconds:
+        if enforce_scene_windows and observed_start < planned_start - drift_tolerance_seconds:
             failures.append(f"line_{item['line_index']}_starts_before_scene")
-        if observed_end > planned_end + drift_tolerance_seconds:
+        if enforce_scene_windows and observed_end > planned_end + drift_tolerance_seconds:
             failures.append(f"line_{item['line_index']}_ends_after_scene")
     if wer > wer_threshold:
         failures.append("wer_above_threshold")
@@ -260,6 +263,7 @@ def analyze_whisperx_alignment(
         ),
         "wer_threshold": wer_threshold,
         "drift_tolerance_seconds": drift_tolerance_seconds,
+        "enforce_scene_windows": enforce_scene_windows,
         "transcript": hypothesis,
         "lines": lines,
         "failure_reasons": failures,

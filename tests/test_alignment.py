@@ -4,6 +4,21 @@ from storymem_agentic.alignment import analyze_whisperx_alignment, line_timestam
 
 
 class AlignmentTests(unittest.TestCase):
+    def test_continuous_song_does_not_fail_scene_window_drift(self):
+        result = analyze_whisperx_alignment(
+            ["Hush now", "Sleep now"],
+            [(0.0, 2.0), (2.0, 4.0)],
+            [
+                {"word": "Hush", "start": 1.0, "end": 1.2},
+                {"word": "now", "start": 1.3, "end": 1.5},
+                {"word": "Sleep", "start": 5.0, "end": 5.2},
+                {"word": "now", "start": 5.3, "end": 5.5},
+            ],
+            enforce_scene_windows=False,
+        )
+        self.assertTrue(result["passed"])
+        self.assertFalse(result["enforce_scene_windows"])
+
     def test_word_error_rate_exact_match(self):
         self.assertEqual(word_error_rate("Twinkle little star", "twinkle little star"), 0)
 

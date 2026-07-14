@@ -423,12 +423,18 @@ def _is_whisperx_timing_failure(report: EvaluationReport | None) -> bool:
     )
 
 
-def analyze_whisperx_for_plan(plan: ProductionPlan, whisperx_alignment_path: Path) -> dict[str, Any]:
+def analyze_whisperx_for_plan(
+    plan: ProductionPlan,
+    whisperx_alignment_path: Path,
+    *,
+    enforce_scene_windows: bool = True,
+) -> dict[str, Any]:
     aligned_words = load_whisperx_words(whisperx_alignment_path)
     return analyze_whisperx_alignment(
         [segment.text for segment in plan.lyric_segments],
         [(segment.start_seconds, segment.end_seconds) for segment in plan.lyric_segments],
         aligned_words,
+        enforce_scene_windows=enforce_scene_windows,
     )
 
 
@@ -894,7 +900,9 @@ def run_workflow(
             and audio_result is not None
             and whisperx_alignment_path.exists()
         ):
-            full_song_alignment = analyze_whisperx_for_plan(plan, whisperx_alignment_path)
+            full_song_alignment = analyze_whisperx_for_plan(
+                plan, whisperx_alignment_path, enforce_scene_windows=False
+            )
             if _needs_scene_lyrics_audio_fallback(full_song_alignment) and full_song_candidate_count > 1:
                 attempts_dir = latest_paths["iteration_dir"] / "full_song_audio_candidates"
                 attempts_dir.mkdir(parents=True, exist_ok=True)
@@ -922,7 +930,9 @@ def run_workflow(
                     run_audio_alignment(final_candidate, f"whisperx_full_song_candidate_{candidate:02d}")
                     if not whisperx_alignment_path.exists():
                         continue
-                    retry_alignment = analyze_whisperx_for_plan(plan, whisperx_alignment_path)
+                    retry_alignment = analyze_whisperx_for_plan(
+                        plan, whisperx_alignment_path, enforce_scene_windows=False
+                    )
                     media_copy = attempts_dir / f"candidate_{candidate:02d}.mp4"
                     json_copy = attempts_dir / f"candidate_{candidate:02d}_whisperx_alignment.json"
                     shutil.copy2(final_candidate, media_copy)
@@ -1094,6 +1104,7 @@ def run_workflow(
             vlm_command=vlm_command,
             audio_review_command=audio_review_command,
             review_frames_dir=latest_paths["iteration_dir"] / "review_frames",
+            enforce_lyric_scene_windows=current_media_audio_mode != "full_song",
         )
         write_json(latest_paths["iteration_dir"] / "evaluation_report.json", latest_report.to_dict())
         write_json(

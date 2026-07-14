@@ -54,6 +54,7 @@ def evaluate_iteration(
     vlm_command: str | None = None,
     audio_review_command: str | None = None,
     review_frames_dir: str | Path | None = None,
+    enforce_lyric_scene_windows: bool = True,
 ) -> EvaluationReport:
     root = Path(generated_dir)
     expected_clips = [root / f"{scene.scene_num:02d}_01.mp4" for scene in plan.scenes]
@@ -194,6 +195,7 @@ def evaluate_iteration(
             [segment.text for segment in plan.lyric_segments],
             [(segment.start_seconds, segment.end_seconds) for segment in plan.lyric_segments],
             aligned_words,
+            enforce_scene_windows=enforce_lyric_scene_windows,
         )
         reviewer_reports.append(
             ReviewerReport(

@@ -966,7 +966,7 @@ class AgenticArchitectureTests(unittest.TestCase):
         self.assertFalse(result["passed"])
         self.assertIn("line_1_starts_before_scene", result["failure_reasons"])
 
-    def test_full_song_timing_failure_triggers_scene_mix_fallback(self):
+    def test_scene_locked_timing_failure_triggers_scene_mix_fallback(self):
         from storymem_agentic.orchestrator import _needs_scene_lyrics_audio_fallback
 
         self.assertTrue(
