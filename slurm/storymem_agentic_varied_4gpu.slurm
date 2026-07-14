@@ -33,6 +33,11 @@ CHARACTER_BANK="${CHARACTER_BANK:-}"
 FINALIZED_PLAN="${FINALIZED_PLAN:-}"
 EXECUTE_VIDEO="${EXECUTE_VIDEO:-1}"
 MEDIA_AUDIO_MODE="${MEDIA_AUDIO_MODE:-full_song}"
+VOICE_BACKEND="${VOICE_BACKEND:-}"
+VOICE_REF_AUDIO="${VOICE_REF_AUDIO:-}"
+VOICE_REF_TEXT="${VOICE_REF_TEXT:-}"
+REUSE_VIDEO_DIR="${REUSE_VIDEO_DIR:-}"
+MAX_ITERATIONS="${MAX_ITERATIONS:-2}"
 CHARACTER_BANK_ARGS=()
 if [ -n "${CHARACTER_BANK}" ]; then
   CHARACTER_BANK_ARGS=(--character-bank "${CHARACTER_BANK}")
@@ -44,6 +49,16 @@ fi
 VIDEO_EXECUTION_ARGS=(--execute-video)
 if [ "${EXECUTE_VIDEO}" = "0" ]; then
   VIDEO_EXECUTION_ARGS=(--no-execute-video)
+fi
+VOICE_ARGS=()
+if [ -n "${VOICE_BACKEND}" ]; then
+  VOICE_ARGS+=(--voice-backend "${VOICE_BACKEND}")
+fi
+if [ -n "${VOICE_REF_AUDIO}" ]; then
+  VOICE_ARGS+=(--voice-ref-audio "${VOICE_REF_AUDIO}")
+fi
+if [ -n "${VOICE_REF_TEXT}" ]; then
+  VOICE_ARGS+=(--voice-ref-text "${VOICE_REF_TEXT}")
 fi
 
 module load python
@@ -57,11 +72,16 @@ export TORCH_HOME="${TORCH_HOME:-${AGENTIC_DIR}/.torch-cache}"
 export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}"
 export TMPDIR="${TMPDIR:-${AGENTIC_DIR}/.tmp}"
 mkdir -p "${AGENTIC_DIR}/logs" "${OUTPUT_PATH}" "${TMPDIR}"
+if [ -n "${REUSE_VIDEO_DIR}" ]; then
+  mkdir -p "${OUTPUT_PATH}/iterations/001/generated"
+  cp -a "${REUSE_VIDEO_DIR}/." "${OUTPUT_PATH}/iterations/001/generated/"
+fi
 
 PLANNER_CMD="${VENV_DIR}/bin/python ${AGENTIC_DIR}/scripts/local_lullaby_planner.py --model ${PLANNER_MODEL} --debug-output ${OUTPUT_PATH}/planner_raw_output.txt"
 PLAN_CRITIC_CMD="${VENV_DIR}/bin/python ${AGENTIC_DIR}/scripts/local_plan_critic.py --model ${PLANNER_MODEL} --debug-output ${OUTPUT_PATH}/plan_critic_raw_output.txt"
-VLM_CMD="${VENV_DIR}/bin/python ${AGENTIC_DIR}/scripts/local_lullaby_reviewer.py --model ${REVIEWER_MODEL} --debug-output ${OUTPUT_PATH}/vlm_review_raw_output.txt"
+VLM_CMD="${VENV_DIR}/bin/python ${AGENTIC_DIR}/scripts/local_lullaby_reviewer.py --model ${REVIEWER_MODEL} --max-new-tokens 1200 --debug-output ${OUTPUT_PATH}/vlm_review_raw_output.txt"
 ACE_STEP_CMD="${STORYMEM_DIR}/audio_tools/.venv/acestep/bin/python ${AGENTIC_DIR}/run_acestep_story_audio.py --lyrics-file \${lyrics_file} --prompt-file \${prompt_file} --duration \${duration} --seed \${seed} --output \${output_file} --checkpoint-path ${STORYMEM_DIR}/audio_tools/ace_step_checkpoints"
+F5_TTS_CMD="${AGENTIC_DIR}/audio_tools/bin/storymem-f5tts-line --ref_audio \${ref_audio} --ref_text \${ref_text} --gen_text \${text} --output_file \${output_file}"
 WHISPERX_BIN="${WHISPERX_BIN:-${AGENTIC_DIR}/.venv-whisperx/bin/whisperx}"
 WHISPERX_CMD="${WHISPERX_BIN} \${audio_file} --model small --language en --device cuda --compute_type float16 --vad_method silero --output_format json --output_dir \${output_dir}"
 
@@ -84,10 +104,11 @@ python -m storymem_agentic.cli iterate \
   --output-dir "${OUTPUT_PATH}" \
   --target-duration 20 \
   --clip-count 4 \
-  --max-iterations 2 \
+  --max-iterations "${MAX_ITERATIONS}" \
   --seed "${SEED}" \
   "${CHARACTER_BANK_ARGS[@]}" \
   "${FINALIZED_PLAN_ARGS[@]}" \
+  "${VOICE_ARGS[@]}" \
   --storymem-dir "${STORYMEM_DIR}" \
   --t2v-model-path "${T2V_MODEL_PATH}" \
   --i2v-model-path "${I2V_MODEL_PATH}" \
@@ -105,6 +126,7 @@ python -m storymem_agentic.cli iterate \
   --media-audio-mode "${MEDIA_AUDIO_MODE}" \
   --audio-output-suffix _with_music \
   --ace-step-cmd "${ACE_STEP_CMD}" \
+  --vocal-cmd "${F5_TTS_CMD}" \
   --strict-lullaby-review \
   "${VIDEO_EXECUTION_ARGS[@]}"
 

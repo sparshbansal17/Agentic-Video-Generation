@@ -65,7 +65,9 @@ def build_revision_plan(plan: ProductionPlan, report: EvaluationReport) -> Revis
     failed_reviewers = {item.reviewer for item in report.reviewer_reports if not item.passed}
     whisperx_failed = "WhisperXLyricTimingAgent" in failed_reviewers
     audio_failed = bool({"AudioReviewAgent", "AudioArtifactReviewAgent", "AudioVisualSyncReviewAgent", "WhisperXLyricTimingAgent"} & failed_reviewers)
-    visual_or_artifact_failed = bool(failed_reviewers - {"AudioReviewAgent", "AudioVisualSyncReviewAgent", "WhisperXLyricTimingAgent"})
+    visual_or_artifact_failed = bool(failed_reviewers - {
+        "AudioReviewAgent", "AudioArtifactReviewAgent", "AudioVisualSyncReviewAgent", "WhisperXLyricTimingAgent"
+    })
     video_artifacts_ok = all(
         report.artifact_checks.get(name, False)
         for name in ["clip_count", "final_video_exists", "has_video_stream", "has_subtitles", "duration_match"]

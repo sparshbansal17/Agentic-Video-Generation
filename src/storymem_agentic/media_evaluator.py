@@ -278,6 +278,7 @@ def evaluate_iteration(
             "missing_whisperx_alignment",
             "missing_observed_lyrics",
             "wer_above_threshold",
+            "model_review_failed",
         }
         audio_only = True
         for reason in failure_reasons:
