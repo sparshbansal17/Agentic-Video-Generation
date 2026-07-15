@@ -23,6 +23,12 @@ DEFAULT_STYLE_PROMPT = (
     "soft strings pad, very gentle brushed percussion, slow 3/4 sway, major key, "
     "dreamy starry night, magical but calm, child-friendly, warm and comforting"
 )
+DEFAULT_BACKING_PROMPT = (
+    "instrumental accompaniment only, no singing, no spoken words, no humming, "
+    "continuous nursery-rhyme backing track, clearly audible music box and celesta melody, "
+    "glockenspiel accents, light harp arpeggios, warm strings, very gentle brushed percussion, "
+    "slow 3/4 sway, major key, child-friendly, warm and comforting"
+)
 MAX_AUDIO_PROMPT_CHARS = 1600
 
 
@@ -334,6 +340,51 @@ def _song_template(config: AudioConfig) -> str:
     return _require_template(config.ace_step_cmd or os.getenv("ACE_STEP_CMD"), "ACE-Step full-song")
 
 
+def _instrumental_style_prompt(story: dict) -> str:
+    metadata = story.get("agentic_metadata", {})
+    plan_music_prompt = _dedupe_sentences(str(metadata.get("music_prompt", "")).strip())
+    direction = f", planner arrangement direction: {plan_music_prompt}" if plan_music_prompt else ""
+    return f"{DEFAULT_BACKING_PROMPT}{direction}. Instrumental audio only; never generate a vocal track."
+
+
+def _render_instrumental_backing(
+    config: AudioConfig,
+    story: dict,
+    work_dir: Path,
+    values: dict[str, str],
+    duration: float,
+) -> Path:
+    backing_prompt = _instrumental_style_prompt(story)
+    backing_lyrics_path = work_dir / "backing_lyrics.txt"
+    backing_lyrics_path.write_text("[instrumental]\n", encoding="utf-8")
+    backing_prompt_path = _write_audio_prompt(
+        work_dir / "backing_prompt.json",
+        backing_prompt,
+        story,
+        config,
+        duration,
+        "[instrumental]",
+    )
+    backing = work_dir / "backing.wav"
+    _run_template(
+        _backing_template(config),
+        dict(
+            values,
+            lyrics_file=str(backing_lyrics_path),
+            prompt_file=str(backing_prompt_path),
+            music_prompt=backing_prompt,
+            output_file=str(backing),
+            duration=f"{duration:.3f}",
+            seed=str(config.seed + 1000),
+            mode="backing",
+        ),
+        "instrumental backing-track generation",
+    )
+    if not backing.is_file() or backing.stat().st_size <= 44:
+        raise RuntimeError(f"Backing-track backend did not produce usable audio: {backing}")
+    return backing
+
+
 def _find_ffmpeg(config: AudioConfig) -> str:
     candidates = [config.ffmpeg_bin, os.getenv("FFMPEG_BIN"), shutil.which("ffmpeg")]
     for candidate in candidates:
@@ -371,24 +422,6 @@ def _lyric_lines_for_scenes(story: dict, lyrics: str, max_lines: int = 4) -> lis
     if scene_lines:
         return scene_lines[:max_lines]
     return [line.strip() for line in lyrics.splitlines() if line.strip()][:max_lines]
-
-
-def _normalize_full_song(ffmpeg: str, source: Path, output: Path, duration: float) -> None:
-    audio_filter = (
-        "aresample=48000,"
-        "aformat=sample_fmts=fltp:channel_layouts=stereo,"
-        "loudnorm=I=-15:TP=-1.5:LRA=11,"
-        "afade=t=in:st=0:d=0.7,"
-        f"afade=t=out:st={max(duration - 1.2, 0):.3f}:d=1.2,"
-        f"apad=pad_dur={duration:.3f},"
-        f"atrim=0:{duration:.3f}"
-    )
-    subprocess.run([
-        ffmpeg, "-y", "-i", str(source),
-        "-af", audio_filter,
-        "-ar", "48000", "-ac", "2",
-        str(output),
-    ], check=True)
 
 
 def _mix_stems(ffmpeg: str, vocals: Path, backing: Path, output: Path, duration: float) -> None:
@@ -697,15 +730,14 @@ def generate_audio_for_story(config: AudioConfig) -> Path | None:
         source_song = work_dir / "song.wav"
         values["output_file"] = str(source_song)
         _run_template(_song_template(config), values, config.vocal_backend)
-        _normalize_full_song(ffmpeg, source_song, mixed_song, duration)
+        backing = _render_instrumental_backing(config, story, work_dir, values, duration)
+        _mix_stems(ffmpeg, source_song, backing, mixed_song, duration)
     elif render_mode == "scene_lyrics_mix":
         _generate_scene_lyrics_mix(config, story, ffmpeg, work_dir, values, lyrics, mixed_song, duration, output_dir)
     else:
         vocals = work_dir / "vocals.wav"
-        backing = work_dir / "backing.wav"
         _validate_voice_reference(config)
         vocal_template = _vocal_template(config)
-        backing_template = _backing_template(config)
         vocal_values = dict(
             values,
             output_file=str(vocals),
@@ -716,14 +748,8 @@ def generate_audio_for_story(config: AudioConfig) -> Path | None:
             ref_audio=str(config.voice_ref_audio or ""),
             ref_text=str(config.voice_ref_text or ""),
         )
-        backing_values = dict(
-            values,
-            output_file=str(backing),
-            mode="backing",
-            music_prompt=_audio_style_prompt(story, config),
-        )
         _run_template(vocal_template, vocal_values, "vocal generation")
-        _run_template(backing_template, backing_values, "backing-track generation")
+        backing = _render_instrumental_backing(config, story, work_dir, values, duration)
         _mix_stems(ffmpeg, vocals, backing, mixed_song, duration)
 
     final_output = video_path.with_name(f"{video_path.stem}{config.audio_output_suffix}{video_path.suffix}")

@@ -10,6 +10,7 @@ from storymem_agentic.song_pipeline import (
     select_passing_candidate,
     validate_song_feasibility,
 )
+from storymem_agentic.mixer import build_mix_manifest
 
 
 class SongPipelineTests(unittest.TestCase):
@@ -68,6 +69,14 @@ class SongPipelineTests(unittest.TestCase):
         self.assertFalse(result["passed"])
         self.assertIn("audio_duration_out_of_tolerance", result["failure_reasons"])
         self.assertIn("audio_effectively_silent", result["failure_reasons"])
+
+    def test_full_song_manifest_names_real_song_and_backing_artifacts(self):
+        manifest = build_mix_manifest(self.plan)
+
+        self.assertEqual(manifest["voice_stems"], ["song.wav"])
+        self.assertEqual(manifest["music_bed"], "backing.wav")
+        self.assertEqual(manifest["output_file"], "mixed_song.wav")
+        self.assertTrue(manifest["ducking"]["enabled"])
 
 
 if __name__ == "__main__":

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import subprocess
 from pathlib import Path
 
@@ -12,6 +13,37 @@ from .alignment import analyze_whisperx_alignment, load_whisperx_words
 from .audio_quality import probe_audio_quality
 from .review_agents import ModelReviewConfig, model_review_reports
 from .schemas import EvaluationReport, ProductionPlan, ReviewerReport, SceneEvaluation
+
+
+def accompaniment_artifact_report(root: Path, ffmpeg_bin: str = "ffmpeg") -> ReviewerReport | None:
+    prompt_path = root / "audio" / "audio_prompt.json"
+    if not prompt_path.exists():
+        return None
+    try:
+        audio_prompt = json.loads(prompt_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        audio_prompt = {}
+    if audio_prompt.get("audio_mode") != "full_song":
+        return None
+
+    backing_path = root / "audio" / "backing.wav"
+    quality = probe_audio_quality(
+        backing_path,
+        expected_duration_seconds=0.0,
+        ffmpeg_bin=ffmpeg_bin,
+    )
+    failures = list(quality["failure_reasons"])
+    if "missing_audio_stream" in failures:
+        failures = ["missing_instrumental_backing" if item == "missing_audio_stream" else item for item in failures]
+    if "audio_effectively_silent" in failures:
+        failures = ["instrumental_backing_effectively_silent" if item == "audio_effectively_silent" else item for item in failures]
+    return ReviewerReport(
+        reviewer="AccompanimentArtifactGate",
+        passed=not failures,
+        scores={"backing_present_and_audible": 1.0 if not failures else 0.0},
+        failure_reasons=failures,
+        evidence={"backing_path": str(backing_path), **dict(quality["metrics"])},
+    )
 
 
 def video_duration_seconds(path: Path) -> float:
@@ -118,6 +150,9 @@ def evaluate_iteration(
                 evidence=dict(technical["metrics"]),
             )
         )
+        accompaniment_report = accompaniment_artifact_report(root, ffmpeg_bin)
+        if accompaniment_report is not None:
+            reviewer_reports.append(accompaniment_report)
 
     scene_reports = []
     regeneration_targets = []
