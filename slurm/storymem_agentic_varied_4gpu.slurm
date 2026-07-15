@@ -18,10 +18,11 @@ umask 002
 : "${LYRICS_FILE:?Set LYRICS_FILE to the canonical lyric text file}"
 
 AGENTIC_DIR="${STORYMEM_AGENTIC_DIR:-/scratch/gautschi/bansa125/storymem-agentic}"
-STORYMEM_DIR="${STORYMEM_DIR:-/scratch/gautschi/bansa125/StoryMem}"
+STORYMEM_RUNTIME_DIR="${STORYMEM_RUNTIME_DIR:-${AGENTIC_DIR}}"
+STORYMEM_ASSET_DIR="${STORYMEM_ASSET_DIR:-${STORYMEM_DIR:-/scratch/gautschi/bansa125/StoryMem}}"
 VENV_DIR="${VENV_DIR:-${AGENTIC_DIR}/.venv}"
 OUTPUT_PATH="${OUTPUT_PATH:-${AGENTIC_DIR}/results/${RUN_SLUG}_agentic_4gpu_${SLURM_JOB_ID}}"
-MODEL_ROOT="${MODEL_ROOT:-${STORYMEM_DIR}/models}"
+MODEL_ROOT="${MODEL_ROOT:-${STORYMEM_ASSET_DIR}/models}"
 T2V_MODEL_PATH="${T2V_MODEL_PATH:-${MODEL_ROOT}/Wan2.2-T2V-A14B}"
 I2V_MODEL_PATH="${I2V_MODEL_PATH:-${MODEL_ROOT}/Wan2.2-I2V-A14B}"
 LORA_WEIGHT_PATH="${LORA_WEIGHT_PATH:-${MODEL_ROOT}/StoryMem/Wan2.2-MI2V-A14B}"
@@ -38,6 +39,7 @@ VOICE_REF_AUDIO="${VOICE_REF_AUDIO:-}"
 VOICE_REF_TEXT="${VOICE_REF_TEXT:-}"
 REUSE_VIDEO_DIR="${REUSE_VIDEO_DIR:-}"
 MAX_ITERATIONS="${MAX_ITERATIONS:-2}"
+MAX_PLAN_REVISIONS="${MAX_PLAN_REVISIONS:-8}"
 CHARACTER_BANK_ARGS=()
 if [ -n "${CHARACTER_BANK}" ]; then
   CHARACTER_BANK_ARGS=(--character-bank "${CHARACTER_BANK}")
@@ -84,18 +86,20 @@ fi
 PLANNER_CMD="${VENV_DIR}/bin/python ${AGENTIC_DIR}/scripts/local_lullaby_planner.py --model ${PLANNER_MODEL} --debug-output ${OUTPUT_PATH}/planner_raw_output.txt"
 PLAN_CRITIC_CMD="${VENV_DIR}/bin/python ${AGENTIC_DIR}/scripts/local_plan_critic.py --model ${PLANNER_MODEL} --debug-output ${OUTPUT_PATH}/plan_critic_raw_output.txt"
 VLM_CMD="${VENV_DIR}/bin/python ${AGENTIC_DIR}/scripts/local_lullaby_reviewer.py --model ${REVIEWER_MODEL} --max-new-tokens 1200 --debug-output ${OUTPUT_PATH}/vlm_review_raw_output.txt"
-ACE_STEP_CMD="${STORYMEM_DIR}/audio_tools/.venv/acestep/bin/python ${AGENTIC_DIR}/run_acestep_story_audio.py --lyrics-file \${lyrics_file} --prompt-file \${prompt_file} --duration \${duration} --seed \${seed} --output \${output_file} --checkpoint-path ${STORYMEM_DIR}/audio_tools/ace_step_checkpoints"
+ACE_STEP_CMD="${STORYMEM_ASSET_DIR}/audio_tools/.venv/acestep/bin/python ${AGENTIC_DIR}/run_acestep_story_audio.py --lyrics-file \${lyrics_file} --prompt-file \${prompt_file} --duration \${duration} --seed \${seed} --output \${output_file} --checkpoint-path ${STORYMEM_ASSET_DIR}/audio_tools/ace_step_checkpoints"
 F5_TTS_CMD="${AGENTIC_DIR}/audio_tools/bin/storymem-f5tts-line --ref_audio \${ref_audio} --ref_text \${ref_text} --gen_text \${text} --output_file \${output_file}"
 WHISPERX_BIN="${WHISPERX_BIN:-${AGENTIC_DIR}/.venv-whisperx/bin/whisperx}"
 WHISPERX_CMD="${WHISPERX_BIN} \${audio_file} --model small --language en --device cuda --compute_type float16 --vad_method silero --output_format json --output_dir \${output_dir}"
 
 for path in \
-  "${STORYMEM_DIR}/pipeline.py" \
+  "${STORYMEM_RUNTIME_DIR}/pipeline.py" \
+  "${STORYMEM_RUNTIME_DIR}/wan" \
+  "${STORYMEM_RUNTIME_DIR}/extract_keyframes.py" \
   "${T2V_MODEL_PATH}" \
   "${I2V_MODEL_PATH}" \
   "${LORA_WEIGHT_PATH}" \
   "${WHISPERX_BIN}" \
-  "${STORYMEM_DIR}/audio_tools/.venv/acestep/bin/python"; do
+  "${STORYMEM_ASSET_DIR}/audio_tools/.venv/acestep/bin/python"; do
   if [ ! -e "${path}" ]; then
     echo "Required path does not exist: ${path}" >&2
     exit 2
@@ -113,7 +117,7 @@ python -m storymem_agentic.cli iterate \
   "${CHARACTER_BANK_ARGS[@]}" \
   "${FINALIZED_PLAN_ARGS[@]}" \
   "${VOICE_ARGS[@]}" \
-  --storymem-dir "${STORYMEM_DIR}" \
+  --storymem-dir "${STORYMEM_RUNTIME_DIR}" \
   --t2v-model-path "${T2V_MODEL_PATH}" \
   --i2v-model-path "${I2V_MODEL_PATH}" \
   --lora-weight-path "${LORA_WEIGHT_PATH}" \
@@ -122,6 +126,7 @@ python -m storymem_agentic.cli iterate \
   --planner-backend command \
   --planner-command "${PLANNER_CMD}" \
   --plan-critic-command "${PLAN_CRITIC_CMD}" \
+  --max-plan-revisions "${MAX_PLAN_REVISIONS}" \
   --review-backend command \
   --vlm-command "${VLM_CMD}" \
   --audio-aligner whisperx \

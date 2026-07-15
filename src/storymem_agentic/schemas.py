@@ -109,6 +109,11 @@ class SceneBeat:
     style: str = ""
     safety_adaptation: str = ""
     selected_characters: list[dict[str, Any]] = field(default_factory=list)
+    narrative_function: str = "unspecified"
+    relationship_kind: str = "unspecified"
+    relationship_preserve: list[str] = field(default_factory=list)
+    relationship_change: list[str] = field(default_factory=list)
+    relationship_rationale: str = ""
     review_status: str = "pending"
 
 
@@ -124,6 +129,7 @@ class ProductionPlan:
     audio_mode: AudioMode
     music_prompt: str
     evaluation_rubric: dict[str, Any]
+    arc_summary: str = ""
 
     def validate(self) -> None:
         self.rhyme.validate()
@@ -146,6 +152,14 @@ class ProductionPlan:
                 raise ValueError(f"lyric segment {segment.index} has non-positive duration")
             previous_end = segment.end_seconds
         seen = set()
+        relationship_kinds = {
+            "opening",
+            "continuation",
+            "reprise",
+            "contrast",
+            "payoff",
+            "unspecified",
+        }
         for scene in self.scenes:
             if scene.scene_num in seen:
                 raise ValueError("scene_num values must be unique")
@@ -161,6 +175,10 @@ class ProductionPlan:
                 raise ValueError(f"scene {scene.scene_num} has empty subtitle_text")
             if scene.start_seconds < matching_segment.start_seconds - 0.001 or scene.end_seconds > matching_segment.end_seconds + 0.001:
                 raise ValueError(f"scene {scene.scene_num} falls outside lyric timing window")
+            if scene.relationship_kind not in relationship_kinds:
+                raise ValueError(
+                    f"scene {scene.scene_num} has invalid relationship_kind: {scene.relationship_kind}"
+                )
 
     def to_dict(self) -> dict[str, Any]:
         self.validate()
@@ -179,6 +197,7 @@ class ProductionPlan:
             audio_mode=data.get("audio_mode", "full_song"),
             music_prompt=data.get("music_prompt", ""),
             evaluation_rubric=dict(data.get("evaluation_rubric", {})),
+            arc_summary=str(data.get("arc_summary", "")),
         )
         plan.validate()
         return plan

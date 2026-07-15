@@ -575,21 +575,33 @@ def run_workflow(
     if production_plan_path:
         source_plan_path = Path(production_plan_path)
         plan = ProductionPlan.from_dict(json.loads(source_plan_path.read_text(encoding="utf-8")))
-        validation_report = validate_plan_semantics(plan, require_reviewer_approval=True)
-        if not validation_report.get("passed"):
-            raise ValueError(f"supplied production plan is not approved: {source_plan_path}")
-        source_root = source_plan_path.parent.parent.parent
-        source_critic_path = source_root / "plan_critic_report.json"
-        critic_report = (
-            json.loads(source_critic_path.read_text(encoding="utf-8"))
-            if source_critic_path.exists()
-            else {"passed": True, "issues": [], "scores": {}, "revision_notes": []}
-        )
-        if not critic_report.get("passed"):
-            raise ValueError(f"supplied production plan lacks semantic reviewer approval: {source_plan_path}")
-        planner.last_validation_report = validation_report
-        planner.last_critic_report = critic_report
-        planner.last_context = {"production_plan_path": str(source_plan_path), "reused_finalized_plan": True}
+        if plan.version != "1.1":
+            if planner.backend is None:
+                raise ValueError(
+                    f"legacy production plan requires agentic replanning under the 1.1 semantic contract: {source_plan_path}"
+                )
+            plan = planner.plan(nursery_input)
+            planner.last_context = {
+                **(planner.last_context or {}),
+                "production_plan_path": str(source_plan_path),
+                "legacy_plan_replanned": True,
+                "reused_finalized_plan": False,
+            }
+        else:
+            deterministic_report = validate_plan_semantics(plan, require_reviewer_approval=False)
+            critic_report = planner.critic.review(plan, deterministic_report)
+            if deterministic_report.get("issues") or not critic_report.get("passed"):
+                raise ValueError(f"supplied production plan failed current semantic review: {source_plan_path}")
+            for scene in plan.scenes:
+                scene.review_status = "approved"
+            validation_report = validate_plan_semantics(plan, require_reviewer_approval=True)
+            planner.last_validation_report = validation_report
+            planner.last_critic_report = critic_report
+            planner.last_context = {
+                "production_plan_path": str(source_plan_path),
+                "reused_finalized_plan": True,
+                "semantic_review_rerun": True,
+            }
     else:
         plan = planner.plan(nursery_input)
     write_json(root / "nursery_rhyme_input.json", nursery_input.to_dict())
@@ -631,7 +643,7 @@ def run_workflow(
     planner_output = {
         "backend": planner_backend,
         "production_plan_path": str(production_plan_path) if production_plan_path else None,
-        "reused_finalized_plan": bool(production_plan_path),
+        "reused_finalized_plan": bool((planner.last_context or {}).get("reused_finalized_plan", False)),
         "command": planner_command,
         "plan_critic_command": plan_critic_command,
         "max_plan_revisions": max_plan_revisions,

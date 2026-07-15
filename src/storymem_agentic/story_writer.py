@@ -15,6 +15,7 @@ def story_from_plan(plan: ProductionPlan) -> dict:
         ),
         "agentic_metadata": {
             "plan_version": plan.version,
+            "arc_summary": plan.arc_summary,
             "target_fps": plan.target_fps,
             "audio_mode": plan.audio_mode,
             "music_prompt": plan.music_prompt,
@@ -29,6 +30,13 @@ def story_from_plan(plan: ProductionPlan) -> dict:
                 "planned_start_seconds": scene.start_seconds,
                 "planned_end_seconds": scene.end_seconds,
                 "duration_seconds": scene.end_seconds - scene.start_seconds,
+                "narrative_function": scene.narrative_function,
+                "relationship_to_previous": {
+                    "kind": scene.relationship_kind,
+                    "preserve": scene.relationship_preserve,
+                    "change": scene.relationship_change,
+                    "rationale": scene.relationship_rationale,
+                },
                 "video_prompts": [scene.video_prompt],
                 "first_frame_prompt": [scene.first_frame_prompt],
                 "cut": [scene.cut],

@@ -26,6 +26,13 @@ class AgenticArchitectureTests(unittest.TestCase):
                 {
                     "scene_num": index,
                     "lyric_line": line,
+                    "narrative_function": "setup" if index == 1 else "payoff" if index == len(lyrics) else "development",
+                    "relationship_to_previous": {
+                        "kind": "opening" if index == 1 else "contrast",
+                        "preserve": [] if index == 1 else ["same story world", f"same {character_label}"],
+                        "change": [] if index == 1 else [f"visible lyric beat {index}", f"planned coverage {index}"],
+                        "rationale": "establishes the story" if index == 1 else f"lyric {index} advances the causal arc",
+                    },
                     "scene_goal": f"communicate lyric {index}{scene_suffix}",
                     "lyric_interpretation": f"planner interpretation for {line}{scene_suffix}",
                     "setting": f"a distinct full-frame storybook location {index} with foreground props and background depth{scene_suffix}",
@@ -47,6 +54,7 @@ class AgenticArchitectureTests(unittest.TestCase):
             "lyrics": lyrics,
             "clip_count": len(lyrics),
             "target_duration_seconds": len(lyrics) * 5,
+            "arc_summary": "The lead establishes a goal, develops it through successive lyric beats, and reaches a visible payoff.",
             "visual_bible": {
                 "primary_world": "agent designed test world",
                 "allowed_locations": [scene["setting"] for scene in scenes],
@@ -414,6 +422,74 @@ class AgenticArchitectureTests(unittest.TestCase):
         self.assertIn("fox", recurring)
         self.assertNotIn("unused_owl", recurring)
 
+    def test_character_bank_variant_and_identity_constraints_reach_prompt(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            bank_path = Path(tmp) / "characters.json"
+            bank_path.write_text(
+                json.dumps(
+                    {
+                        "characters": [
+                            {
+                                "id": "garden_child",
+                                "description": "one preschool child in a yellow raincoat",
+                                "visual_anchors": ["yellow raincoat", "red boots"],
+                                "allowed_variants": ["hood up", "hood down"],
+                                "continuity_constraints": ["same round face"],
+                                "negative_constraints": ["no duplicate child"],
+                            }
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            decision = self._structured_decision(["Rain taps the garden"], character_label="garden_child")
+            decision["scenes"][0]["selected_characters"][0]["allowed_variant"] = "hood up"
+            planner = PromptPlannerAgent(MockAgentBackend(responses={"planner": decision}), max_plan_revisions=0)
+
+            plan = planner.plan(
+                NurseryRhymeInput(
+                    topic_or_name="garden rain",
+                    character_bank_path=str(bank_path),
+                )
+            )
+
+            prompt = plan.scenes[0].video_prompt
+            self.assertIn("scene variant: hood up", prompt)
+            self.assertIn("identity anchors: yellow raincoat, red boots", prompt)
+            self.assertIn("avoid no duplicate child", prompt)
+            self.assertTrue(validate_plan_semantics(plan)["passed"])
+
+    def test_character_bank_rejects_unlisted_scene_variant(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            bank_path = Path(tmp) / "characters.json"
+            bank_path.write_text(
+                json.dumps(
+                    {
+                        "characters": [
+                            {
+                                "id": "garden_child",
+                                "description": "one preschool child in a yellow raincoat",
+                                "allowed_variants": ["hood up"],
+                            }
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            decision = self._structured_decision(["Rain taps the garden"], character_label="garden_child")
+            decision["scenes"][0]["selected_characters"][0]["allowed_variant"] = "new costume"
+            planner = PromptPlannerAgent(MockAgentBackend(responses={"planner": decision}), max_plan_revisions=0)
+
+            planner.plan(
+                NurseryRhymeInput(
+                    topic_or_name="garden rain",
+                    character_bank_path=str(bank_path),
+                )
+            )
+
+            codes = {issue["code"] for issue in planner.last_validation_report["issues"]}
+            self.assertIn("invalid_character_variant", codes)
+
     def test_planner_accepts_small_agent_authored_revision_patch(self):
         initial = self._structured_decision(["Copper kite", "Velvet hill"], character_label="fox")
         initial["scenes"][1]["setting"] = initial["scenes"][0]["setting"]
@@ -767,8 +843,98 @@ class AgenticArchitectureTests(unittest.TestCase):
 
         self.assertTrue(validate_plan_semantics(plan)["passed"])
         self.assertEqual(plan.scenes[0].action, "the fox smiles and waves one paw toward the moon")
-        self.assertEqual(reviewer_backend.calls, 2)
+        self.assertEqual(reviewer_backend.calls, 4)
         self.assertTrue(any(step.get("source") == "PlanCriticAgent" for step in planner.agent_steps))
+
+    def test_cradle_style_flattening_gets_coupled_semantic_revision(self):
+        decision = self._structured_decision(
+            [
+                "Rock-a-bye baby, on the tree top",
+                "When the wind blows, the cradle will rock",
+                "When the bough breaks, the cradle will fall",
+                "Down will come baby, cradle and all",
+            ],
+            character_label="baby",
+        )
+        for index, scene in enumerate(decision["scenes"]):
+            scene["setting"] = "the same bedroom with the cradle safely supported"
+            scene["subjects"] = "one smiling baby resting in the same cradle"
+            scene["camera"] = "Camera holds the same medium view of the cradle"
+            scene["scene_goal"] = "advance the cradle sequence through a child-safe visible beat"
+            scene["lyric_interpretation"] = "translate this lyric into the next supported stage of the cradle journey"
+            scene["action"] = [
+                "the baby rests peacefully",
+                "the cradle rocks gently",
+                "the cradle lowers gently",
+                "the baby settles safely",
+            ][index]
+            if index:
+                scene["relationship_to_previous"] = {
+                    "kind": "continuation",
+                    "preserve": ["same baby", "same cradle", "same bedroom"],
+                    "change": [scene["action"]],
+                    "rationale": "continues the next lyric safely",
+                }
+
+        class CradleCritic:
+            def __init__(self):
+                self.calls = 0
+
+            def generate_json(self, prompt, schema, context):
+                self.calls += 1
+                if self.calls > 1:
+                    return {"passed": True, "issues": [], "scores": {}, "revision_notes": []}
+                return {
+                    "passed": False,
+                    "issues": [
+                        {
+                            "code": "safety_adaptation_flattens_causal_arc",
+                            "scene_num": 3,
+                            "field": "action",
+                            "editable_fields": [
+                                "setting",
+                                "action",
+                                "camera",
+                                "relationship_change",
+                                "relationship_rationale",
+                            ],
+                            "message": "the safe action repeats the cradle tableau instead of showing a supported transformation",
+                            "evidence": {
+                                "observed": "the cradle lowers gently",
+                                "expected": "a visible supported transformation between rocking and safe landing",
+                                "source": "scene 3 lyric and comparison with scenes 2 and 4",
+                            },
+                            "suggested_change": "revise the coupled staging into a visible supported descent",
+                            "replacement_value": {
+                                "setting": "beneath the same tree, a broad plush cloud cushion rises under the cradle",
+                                "action": "the bending branch guides the cradle down a short glowing ribbon path onto the cushion",
+                                "camera": "Camera cranes downward with the supported cradle and reveals the cushion",
+                                "relationship_change": [
+                                    "wind-driven rocking becomes a visibly supported descent",
+                                    "the opening composition reveals the cushion below",
+                                ],
+                                "relationship_rationale": "the dangerous lyric becomes a child-safe transformation that causally leads to the final landing",
+                            },
+                        }
+                    ],
+                    "scores": {"scene_progression": 0.3},
+                    "revision_notes": ["Repair the safety adaptation without erasing the causal beat"],
+                }
+
+        reviewer = CradleCritic()
+        planner = PromptPlannerAgent(
+            MockAgentBackend(responses={"planner": decision}),
+            critic=PlanCriticAgent(reviewer),
+            max_plan_revisions=2,
+        )
+
+        plan = planner.plan(NurseryRhymeInput(topic_or_name="Rock-a-bye Baby"))
+
+        self.assertEqual(reviewer.calls, 4)
+        self.assertIn("plush cloud cushion", plan.scenes[2].setting)
+        self.assertIn("supported descent", plan.scenes[2].relationship_change[0])
+        self.assertIn("cranes downward", plan.scenes[2].camera)
+        self.assertTrue(validate_plan_semantics(plan)["passed"])
 
     def test_consecutive_identical_staging_requires_revision(self):
         decision = self._structured_decision(["Line one", "Line two"])
@@ -781,7 +947,7 @@ class AgenticArchitectureTests(unittest.TestCase):
         codes = {issue["code"] for issue in planner.last_validation_report["issues"]}
         self.assertIn("repeated_scene_staging", codes)
 
-    def test_flat_camera_coverage_requires_directorial_revision(self):
+    def test_flat_camera_coverage_requires_an_explicit_preservation_reason(self):
         decision = self._structured_decision(["Set up", "Build", "React", "Pay off"])
         for scene in decision["scenes"]:
             scene["camera"] = "Camera holds a static medium shot"
@@ -790,7 +956,305 @@ class AgenticArchitectureTests(unittest.TestCase):
         planner.plan(NurseryRhymeInput(topic_or_name="original playful shape parade"))
 
         codes = {issue["code"] for issue in planner.last_validation_report["issues"]}
-        self.assertIn("repeated_camera_coverage", codes)
+        self.assertNotIn("repeated_camera_coverage", codes)
+        self.assertIn("undeclared_repeated_coverage", codes)
+
+    def test_motivated_refrain_can_explicitly_preserve_camera_coverage(self):
+        decision = self._structured_decision(["Refrain", "Refrain", "Refrain"])
+        for scene in decision["scenes"]:
+            scene["camera"] = "Camera holds the same centered refrain composition"
+        for scene in decision["scenes"][1:]:
+            scene["narrative_function"] = "refrain"
+            scene["relationship_to_previous"] = {
+                "kind": "reprise",
+                "preserve": ["same centered camera composition for the repeated refrain"],
+                "change": [f"the refrain advances to closure in scene {scene['scene_num']}"],
+                "rationale": "the repeated lyric intentionally returns to one chorus composition",
+            }
+
+        planner = PromptPlannerAgent(MockAgentBackend(responses={"planner": decision}), max_plan_revisions=0)
+        planner.plan(NurseryRhymeInput(topic_or_name="repeated chorus composition"))
+
+        codes = {issue["code"] for issue in planner.last_validation_report["issues"]}
+        self.assertNotIn("undeclared_repeated_coverage", codes)
+
+    def test_relationship_cannot_claim_an_unchanged_setting_changed(self):
+        decision = self._structured_decision(["Wind begins", "Cradle responds"])
+        decision["scenes"][1]["setting"] = decision["scenes"][0]["setting"]
+        decision["scenes"][1]["relationship_to_previous"]["change"] = ["setting changes"]
+
+        planner = PromptPlannerAgent(MockAgentBackend(responses={"planner": decision}), max_plan_revisions=0)
+        planner.plan(NurseryRhymeInput(topic_or_name="honest relationship metadata"))
+
+        codes = {issue["code"] for issue in planner.last_validation_report["issues"]}
+        self.assertIn("false_relationship_change_claim", codes)
+
+    def test_relationship_change_requires_a_concrete_observable_description(self):
+        decision = self._structured_decision(["Wind begins", "Cradle responds"])
+        decision["scenes"][1]["relationship_to_previous"]["change"] = ["action"]
+
+        planner = PromptPlannerAgent(MockAgentBackend(responses={"planner": decision}), max_plan_revisions=0)
+        planner.plan(NurseryRhymeInput(topic_or_name="concrete relationship metadata"))
+
+        codes = {issue["code"] for issue in planner.last_validation_report["issues"]}
+        self.assertIn("vague_relationship_change", codes)
+
+    def test_common_final_relationship_alias_normalizes_to_payoff(self):
+        decision = self._structured_decision(["Set up", "Close"])
+        decision["scenes"][1]["relationship_to_previous"]["kind"] = "final"
+
+        plan = PromptPlannerAgent(
+            MockAgentBackend(responses={"planner": decision}), max_plan_revisions=0
+        ).plan(NurseryRhymeInput(topic_or_name="relationship alias"))
+
+        self.assertEqual(plan.scenes[1].relationship_kind, "payoff")
+
+    def test_relationship_change_cannot_use_an_internal_state_as_progression(self):
+        decision = self._structured_decision(["Wind begins", "Cradle responds"])
+        decision["scenes"][1]["relationship_to_previous"]["change"] = [
+            "the child reflects on the peaceful moment"
+        ]
+
+        planner = PromptPlannerAgent(MockAgentBackend(responses={"planner": decision}), max_plan_revisions=0)
+        planner.plan(NurseryRhymeInput(topic_or_name="visible relationship progression"))
+
+        codes = {issue["code"] for issue in planner.last_validation_report["issues"]}
+        self.assertIn("nonvisual_relationship_change", codes)
+
+    def test_relationship_revision_normalizes_scalar_to_list(self):
+        previous = self._structured_decision(["Wind begins", "Cradle responds"])
+        issue = {
+            "code": "vague_relationship_change",
+            "scene_num": 2,
+            "field": "relationship_change",
+            "editable_fields": ["relationship_change"],
+        }
+        patch = {
+            "scene_revisions": [{
+                "scene_num": 2,
+                "field_to_change": "relationship_change",
+                "replacement_value": "wind begins moving the cradle",
+            }],
+            "plan_updates": {},
+        }
+
+        constrained = _constrain_revision_to_issues(patch, [issue], previous)
+
+        self.assertEqual(
+            constrained["scene_revisions"][0]["replacement_value"],
+            ["wind begins moving the cradle"],
+        )
+
+    def test_declared_reprise_can_intentionally_repeat_staging(self):
+        decision = self._structured_decision(["Rain, rain, go away", "Rain, rain, go away"])
+        for field in ("setting", "subjects", "action", "camera"):
+            decision["scenes"][1][field] = decision["scenes"][0][field]
+        decision["scenes"][1]["narrative_function"] = "refrain"
+        decision["scenes"][1]["relationship_to_previous"] = {
+            "kind": "reprise",
+            "preserve": ["same refrain composition", "same child and garden"],
+            "change": ["the repeated lyric now closes the requested visual loop"],
+            "rationale": "the repeated refrain deliberately returns to the opening as an exact loop",
+        }
+
+        planner = PromptPlannerAgent(MockAgentBackend(responses={"planner": decision}), max_plan_revisions=0)
+        plan = planner.plan(NurseryRhymeInput(topic_or_name="looping rain refrain"))
+
+        codes = {
+            issue["code"]
+            for issue in validate_plan_semantics(plan, require_reviewer_approval=False)["issues"]
+        }
+        self.assertNotIn("repeated_narrative_beat", codes)
+        self.assertNotIn("repeated_scene_staging", codes)
+
+    def test_nonadjacent_action_reuse_requires_a_story_reason(self):
+        decision = self._structured_decision(["Open", "Develop", "Close"])
+        decision["scenes"][2]["action"] = decision["scenes"][0]["action"]
+
+        planner = PromptPlannerAgent(MockAgentBackend(responses={"planner": decision}), max_plan_revisions=0)
+        planner.plan(NurseryRhymeInput(topic_or_name="three distinct story beats"))
+
+        codes = {issue["code"] for issue in planner.last_validation_report["issues"]}
+        self.assertIn("reused_nonadjacent_action", codes)
+
+    def test_mood_adverb_alone_does_not_create_a_new_visible_beat(self):
+        decision = self._structured_decision(["Gently onward", "Merrily onward"])
+        decision["scenes"][0]["action"] = "the boat glides gently down the stream"
+        decision["scenes"][1]["action"] = "the boat glides merrily down the stream"
+
+        planner = PromptPlannerAgent(MockAgentBackend(responses={"planner": decision}), max_plan_revisions=0)
+        planner.plan(NurseryRhymeInput(topic_or_name="visible joy beat"))
+
+        codes = {issue["code"] for issue in planner.last_validation_report["issues"]}
+        self.assertIn("adverb_only_action_change", codes)
+
+    def test_mood_adverb_change_is_allowed_for_an_explicit_repeated_lyric_loop(self):
+        decision = self._structured_decision(["Refrain", "Refrain"])
+        decision["scenes"][0]["action"] = "the boat glides gently down the stream"
+        decision["scenes"][1]["action"] = "the boat glides merrily down the stream"
+        decision["scenes"][1]["relationship_to_previous"] = {
+            "kind": "reprise",
+            "preserve": ["same gliding action"],
+            "change": ["the character's visible grin widens for the loop close"],
+            "rationale": "the repeated lyric returns as an exact loop",
+        }
+
+        planner = PromptPlannerAgent(MockAgentBackend(responses={"planner": decision}), max_plan_revisions=0)
+        planner.plan(NurseryRhymeInput(topic_or_name="intentional repeated refrain"))
+
+        codes = {issue["code"] for issue in planner.last_validation_report["issues"]}
+        self.assertNotIn("adverb_only_action_change", codes)
+
+    def test_reprise_cannot_repeat_the_intervening_different_lyric_action(self):
+        decision = self._structured_decision(["Rain go away", "Children play", "Rain go away"])
+        decision["scenes"][2]["action"] = decision["scenes"][1]["action"]
+        decision["scenes"][2]["relationship_to_previous"] = {
+            "kind": "reprise",
+            "preserve": ["same garden"],
+            "change": ["the go-away request returns after play"],
+            "rationale": "the earlier rain lyric returns as a refrain",
+        }
+
+        planner = PromptPlannerAgent(MockAgentBackend(responses={"planner": decision}), max_plan_revisions=0)
+        planner.plan(NurseryRhymeInput(topic_or_name="proper reprise staging"))
+
+        codes = {issue["code"] for issue in planner.last_validation_report["issues"]}
+        self.assertIn("misstaged_reprise", codes)
+
+    def test_lyric_predicates_must_be_visible_in_the_planned_action(self):
+        decision = self._structured_decision([
+            "Rain, rain, go away", "Come again another day", "The clock struck one",
+        ])
+        decision["scenes"][0]["action"] = "the child runs happily through the rain"
+        decision["scenes"][1]["action"] = "the child jumps in a puddle"
+        decision["scenes"][2]["action"] = "the mouse runs down the clock"
+
+        planner = PromptPlannerAgent(MockAgentBackend(responses={"planner": decision}), max_plan_revisions=0)
+        planner.plan(NurseryRhymeInput(topic_or_name="predicate preservation"))
+
+        codes = {issue["code"] for issue in planner.last_validation_report["issues"]}
+        self.assertIn("directional_wish_not_staged", codes)
+        self.assertIn("future_return_wish_not_staged", codes)
+        self.assertIn("named_prop_event_not_staged", codes)
+
+    def test_meta_review_language_cannot_become_a_scene_action(self):
+        decision = self._structured_decision(["A visible beat"])
+        decision["scenes"][0]["action"] = "physical visible meaning required by lyric"
+
+        planner = PromptPlannerAgent(MockAgentBackend(responses={"planner": decision}), max_plan_revisions=0)
+        planner.plan(NurseryRhymeInput(topic_or_name="concrete action"))
+
+        codes = {issue["code"] for issue in planner.last_validation_report["issues"]}
+        self.assertIn("meta_action_placeholder", codes)
+
+    def test_nonadjacent_action_reuse_allows_an_explicit_refrain_return(self):
+        decision = self._structured_decision(["Refrain", "Develop", "Refrain"])
+        decision["scenes"][2]["action"] = decision["scenes"][0]["action"]
+        decision["scenes"][2]["narrative_function"] = "refrain"
+        decision["scenes"][2]["relationship_to_previous"] = {
+            "kind": "reprise",
+            "preserve": ["the opening action and composition"],
+            "change": ["the returning pose now closes the completed parade"],
+            "rationale": "the repeated lyric returns as an exact refrain after the development",
+        }
+
+        planner = PromptPlannerAgent(MockAgentBackend(responses={"planner": decision}), max_plan_revisions=0)
+        planner.plan(NurseryRhymeInput(topic_or_name="refrain return"))
+
+        codes = {issue["code"] for issue in planner.last_validation_report["issues"]}
+        self.assertNotIn("reused_nonadjacent_action", codes)
+
+    def test_declared_repetition_with_no_observable_change_is_rejected(self):
+        decision = self._structured_decision(["The boat reaches the moon", "Life is but a dream"])
+        for field in ("setting", "subjects", "action", "camera"):
+            decision["scenes"][1][field] = decision["scenes"][0][field]
+        decision["scenes"][1]["relationship_to_previous"] = {
+            "kind": "reprise",
+            "preserve": ["same boat composition"],
+            "change": ["no change"],
+            "rationale": "returns to a peaceful ending",
+        }
+
+        planner = PromptPlannerAgent(MockAgentBackend(responses={"planner": decision}), max_plan_revisions=0)
+        planner.plan(NurseryRhymeInput(topic_or_name="boat dream"))
+
+        codes = {issue["code"] for issue in planner.last_validation_report["issues"]}
+        self.assertIn("unmotivated_declared_repetition", codes)
+
+    def test_critic_accepts_field_grounded_evidence_objects(self):
+        decision = self._structured_decision(["A fox crosses the hill"])
+        plan = PromptPlannerAgent(MockAgentBackend(responses={"planner": decision}), max_plan_revisions=0).plan(
+            NurseryRhymeInput(topic_or_name="fox hill")
+        )
+        response = {
+            "passed": False,
+            "issues": [{
+                "code": "shot_plan_mismatch",
+                "scene_num": 1,
+                "field": "action",
+                "editable_fields": ["action", "camera"],
+                "message": "the action does not realize the approved beat",
+                "evidence": {
+                    "observed": {"action": plan.scenes[0].action, "camera": plan.scenes[0].camera},
+                    "expected": {"action": "the fox visibly crosses the hill", "camera": "track the crossing"},
+                    "source": "scene 1 lyric and shot comparison",
+                },
+                "suggested_change": "show the crossing as a concrete visible action",
+                "replacement_value": {
+                    "action": "the fox visibly crosses the hill",
+                    "camera": "Camera tracks beside the fox across the hill",
+                },
+            }],
+            "scores": {"scene_progression": 0.3},
+            "revision_notes": [],
+        }
+        critic = PlanCriticAgent(MockAgentBackend(responses={"plan_critic": response}))
+
+        report = critic.review(plan, validate_plan_semantics(plan, require_reviewer_approval=False))
+
+        self.assertFalse(report["passed"])
+        self.assertEqual(report["issues"][0]["evidence"]["observed"], plan.scenes[0].action)
+        self.assertEqual(set(report["issues"][0]["replacement_fields"]), {"action", "camera"})
+
+    def test_critic_runs_independent_arc_and_shot_passes(self):
+        decision = self._structured_decision(["A fox crosses the hill"])
+        plan = PromptPlannerAgent(MockAgentBackend(responses={"planner": decision}), max_plan_revisions=0).plan(
+            NurseryRhymeInput(topic_or_name="fox hill")
+        )
+
+        class FocusRecorder:
+            def __init__(self):
+                self.focuses = []
+
+            def generate_json(self, prompt, schema, context):
+                self.focuses.append(context["review_focus"]["name"])
+                return {"passed": True, "issues": [], "scores": {}, "revision_notes": []}
+
+        backend = FocusRecorder()
+        report = PlanCriticAgent(backend).review(
+            plan, validate_plan_semantics(plan, require_reviewer_approval=False)
+        )
+
+        self.assertTrue(report["passed"])
+        self.assertEqual(backend.focuses, ["StoryArcReview", "ShotPlanReview"])
+
+    def test_unmotivated_identical_staging_still_requires_revision(self):
+        decision = self._structured_decision(["First beat", "Second beat"])
+        for field in ("setting", "subjects", "action", "camera"):
+            decision["scenes"][1][field] = decision["scenes"][0][field]
+        decision["scenes"][1]["relationship_to_previous"] = {
+            "kind": "contrast",
+            "preserve": ["same character"],
+            "change": ["claims a new beat without changing the shot"],
+            "rationale": "the next lyric should advance",
+        }
+
+        planner = PromptPlannerAgent(MockAgentBackend(responses={"planner": decision}), max_plan_revisions=0)
+        planner.plan(NurseryRhymeInput(topic_or_name="unmotivated repetition"))
+
+        codes = {issue["code"] for issue in planner.last_validation_report["issues"]}
+        self.assertIn("repeated_narrative_beat", codes)
+        self.assertIn("repeated_scene_staging", codes)
 
     def test_overcrowded_five_second_shot_requires_focus(self):
         decision = self._structured_decision(["Friends gather for a game"])
@@ -1156,6 +1620,43 @@ class AgenticArchitectureTests(unittest.TestCase):
             self.assertEqual(plan["scenes"][0]["review_status"], "approved")
             self.assertTrue((out / "planner_draft_01.json").exists())
             self.assertTrue((out / "plan_review_01.json").exists())
+
+    def test_legacy_finalized_plan_is_replanned_under_semantic_contract(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            legacy_plan = build_production_plan(
+                NurseryRhymeInput(topic_or_name="legacy moon lullaby", clip_count=2)
+            ).to_dict()
+            legacy_plan["version"] = "1.0"
+            legacy_path = tmp_path / "production_plan.json"
+            legacy_path.write_text(json.dumps(legacy_plan), encoding="utf-8")
+            decision = self._structured_decision(["Moon line one", "Moon line two"], character_label="moon_guide")
+            planner_script = tmp_path / "planner_backend.py"
+            planner_script.write_text(
+                "import json, sys\n"
+                "json.load(sys.stdin)\n"
+                f"print(json.dumps({decision!r}))\n",
+                encoding="utf-8",
+            )
+            out = tmp_path / "replanned"
+
+            run_workflow(
+                topic_or_name="legacy moon lullaby",
+                output_dir=out,
+                mode="dry_run",
+                production_plan_path=legacy_path,
+                planner_backend="command",
+                planner_command=f"{sys.executable} {planner_script}",
+                audio_aligner="none",
+                generate_audio=False,
+            )
+
+            planner_output = json.loads((out / "planner_agent_output.json").read_text(encoding="utf-8"))
+            replanned = json.loads((out / "iterations" / "001" / "production_plan.json").read_text(encoding="utf-8"))
+            self.assertTrue(planner_output["context"]["legacy_plan_replanned"])
+            self.assertFalse(planner_output["reused_finalized_plan"])
+            self.assertEqual(replanned["version"], "1.1")
+            self.assertEqual(replanned["arc_summary"], decision["arc_summary"])
 
     def test_command_planner_invalid_json_blocks_generation(self):
         with tempfile.TemporaryDirectory() as tmp:

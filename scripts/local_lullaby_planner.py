@@ -6,7 +6,7 @@ import json
 import os
 import re
 import sys
-from typing import Any
+from typing import Any, Callable
 
 
 def extract_json(text: str) -> dict[str, Any]:
@@ -41,6 +41,7 @@ def build_user_prompt(payload: dict[str, Any]) -> str:
     context = payload.get("context", {})
     validation_issues = context.get("validation_issues") or []
     previous_decision = context.get("previous_decision")
+    rejected_transactions = context.get("rejected_transactions") or []
     revision_block = ""
     if validation_issues:
         issue_codes = {
@@ -48,6 +49,13 @@ def build_user_prompt(payload: dict[str, Any]) -> str:
             for issue in validation_issues
             if isinstance(issue, dict)
         }
+        issue_codes.update(
+            str(introduced[0])
+            for transaction in rejected_transactions
+            if isinstance(transaction, dict)
+            for introduced in transaction.get("introduced_issues", [])
+            if isinstance(introduced, (list, tuple)) and introduced
+        )
         unsafe_instruction = ""
         if "unsafe_visual_action" in issue_codes:
             unsafe_instruction = (
@@ -56,7 +64,9 @@ def build_user_prompt(payload: dict[str, Any]) -> str:
                 "subjects, and safety_adaptation.\n"
                 "- Use the evidence excerpts in validation_issues to identify the exact hazardous visual wording.\n"
                 "- Replace unsupported descent, breakage, dropping, crashing, or impact with a calm safe adaptation "
-                "that preserves the lyric's emotional meaning without depicting danger.\n"
+                "that preserves the lyric's causal meaning without depicting danger.\n"
+                "- Compare the neighboring beats and retain a distinct setup, supported transformation, and payoff; "
+                "do not turn every affected scene into the same stationary safe pose.\n"
                 "- The replacement scene must use only visibly safe supported motion such as supported safely, "
                 "gently lowers, floating gently, caught safely, lands safely, or settles safely.\n"
                 "- Remove all remaining hazardous wording from setting, subjects, action, lyric_interpretation, "
@@ -72,18 +82,27 @@ def build_user_prompt(payload: dict[str, Any]) -> str:
             diversity_instruction = (
                 "\nCRITICAL SCENE-DIVERSITY REVISION REQUIRED:\n"
                 "- Rewrite every repeated_scene_staging scene identified by scene_num.\n"
-                "- Give it a materially different setting or foreground/background staging, a different visible action, "
-                "and a different camera composition from matches_scene_num.\n"
-                "- Preserve character identity and the supplied lyric; do not return the previous scene unchanged.\n"
+                "- First decide whether the lyric truly calls for a continuation or refrain. If so, declare relationship_kind "
+                "continuation or reprise and explain what is intentionally preserved, what story state changes, and why.\n"
+                "- Otherwise give it a materially different visible beat and motivated staging/coverage. Never introduce an "
+                "unrelated location merely to look different. Preserve character identity and the supplied lyric.\n"
             )
         narrative_instruction = ""
-        if "repeated_narrative_beat" in issue_codes:
+        if issue_codes.intersection({
+            "adverb_only_action_change", "directional_wish_not_staged", "future_return_wish_not_staged",
+            "meta_action_placeholder", "misstaged_reprise", "named_prop_event_not_staged",
+            "repeated_narrative_beat", "reused_nonadjacent_action", "wish_outcome_reversed",
+        }):
             narrative_instruction = (
                 "\nCRITICAL NARRATIVE-BEAT REVISION REQUIRED:\n"
-                "- Edit only the action field of each cited scene; do not answer with camera, style, or setting edits.\n"
                 "- Use that scene's lyric_line, scene_goal, and lyric_interpretation to create a distinct visible gesture, "
-                "expression, interaction, reaction, or payoff that advances beyond the preceding action.\n"
+                "expression, interaction, reaction, or payoff, or explicitly justify a lyric-motivated continuation/reprise.\n"
+                "- Revise coupled action, staging, coverage, and relationship fields together when needed.\n"
                 "- The replacement must name what the visible subject physically does within five seconds.\n"
+                "- Compare against every action named in issue evidence, including nonadjacent scenes. Do not copy the "
+                "same base action and add an adverb, emotion, singing, thinking, enjoying, or reflecting.\n"
+                "- For a joy lyric use a readable physical celebration or interaction. For an abstract or closing lyric, "
+                "use a visible prop/environment transformation plus a character reaction that pays off the sequence.\n"
             )
         visual_action_instruction = ""
         if "audio_or_internal_action" in issue_codes or "camera_direction_in_action" in issue_codes:
@@ -92,15 +111,30 @@ def build_user_prompt(payload: dict[str, Any]) -> str:
                 "- Edit only each cited action field. Do not return camera edits.\n"
                 "- Preserve any physical activity already present, but replace singing, music, thinking, imagining, reflecting, "
                 "spoken dialogue, or camera language with a visible pose, gaze, facial expression, or gesture.\n"
+                "- When repetition issues are also present, the visible replacement must differ physically from all actions "
+                "named in their evidence; never solve visibility by reverting to an earlier repeated action.\n"
             )
         camera_instruction = ""
-        if "repeated_camera_coverage" in issue_codes:
+        if "repeated_camera_coverage" in issue_codes or "undeclared_repeated_coverage" in issue_codes:
             camera_instruction = (
                 "\nCRITICAL CAMERA-COVERAGE REVISION REQUIRED:\n"
                 "- Edit the camera field of every cited scene. The replacement must not equal the current camera text.\n"
                 "- Change the actual coverage: choose a motivated wide establishing view, close-up reaction/detail, "
                 "low child-eye angle, overhead composition, gentle reveal, or another clearly different shot size/angle.\n"
                 "- Do not merely rephrase the same medium/static/tracking shot. Keep at most one simple movement.\n"
+            )
+        relationship_instruction = ""
+        if "false_relationship_change_claim" in issue_codes:
+            relationship_instruction = (
+                "\nCRITICAL RELATIONSHIP-HONESTY REVISION REQUIRED:\n"
+                "- A relationship_change entry must describe an observable difference from the preceding scene.\n"
+                "- If a cited setting, action, or camera truly changes, patch that concrete field. If it is intentionally "
+                "preserved, move that fact to relationship_preserve and name the actual changed action/state instead.\n"
+                "- Never claim setting, location, camera, or action changed when the corresponding text is identical.\n"
+                "- For every cited scene you MUST patch relationship_change itself. When the location is intentionally "
+                "continuous, also patch relationship_preserve to name that location continuity, and make "
+                "relationship_change a concrete list such as ['wind begins moving the cradle'] or ['the supported cradle "
+                "settles onto the cushion']. Do not answer with action-only patches.\n"
             )
         crowd_instruction = ""
         if "overcrowded_five_second_shot" in issue_codes:
@@ -112,18 +146,31 @@ def build_user_prompt(payload: dict[str, Any]) -> str:
                 "named, depicted, or assigned actions anywhere in that scene.\n"
                 "- Preserve the lead character and the scene's lyric meaning while simplifying the interaction.\n"
             )
+        wish_instruction = ""
+        if issue_codes.intersection({"directional_wish_not_staged", "future_return_wish_not_staged"}):
+            wish_instruction = (
+                "\nCRITICAL WISH-STAGING REVISION REQUIRED:\n"
+                "- Stage the requested outcome, not activity inside the unwanted condition. For departure, show the "
+                "subject making a visible goodbye gesture while the unwanted weather/object visibly drifts away or clears.\n"
+                "- For a future-return wish, show the departing object receding toward the horizon while the subject "
+                "points toward that later destination; do not show puddle play, dancing, waiting, or only a hopeful look.\n"
+                "- The replacement action must literally name the visible departure/clearing and future-return cue.\n"
+            )
         revision_block = (
             "\nThis is a revision request. Fix every validation issue below with a targeted patch. "
             "Preserve supplied lyrics exactly and edit only authorized structured fields before prompt compilation.\n"
             f"Validation issues JSON:\n{json.dumps(validation_issues, indent=2)}\n"
-            f"{unsafe_instruction}{diversity_instruction}{narrative_instruction}{visual_action_instruction}{camera_instruction}{crowd_instruction}\n"
+            f"Rejected prior revision transactions (do not repeat defects they introduced):\n"
+            f"{json.dumps(rejected_transactions, indent=2)}\n"
+            f"{unsafe_instruction}{diversity_instruction}{narrative_instruction}{visual_action_instruction}{camera_instruction}{relationship_instruction}{crowd_instruction}{wish_instruction}\n"
             "GENERAL CORRECTION CONTRACT:\n"
             "- Treat every issue object, regardless of code, as a binding acceptance criterion.\n"
+            "- When an issue supplies replacement_value, use that exact complete value for its cited field unless a "
+            "coupled edit is needed to keep adjacent structured fields consistent.\n"
             "- Use scene_num to edit the affected scene and use field/evidence/message to determine the required change.\n"
             "- Compare the replacement against previous_decision before answering; every cited defect must have a visible JSON-field change.\n"
             "- Do not insert canned topic imagery or substitute a generic bedtime scene unrelated to the supplied input.\n"
         )
-        rejected_transactions = context.get("rejected_transactions") or []
         if rejected_transactions:
             revision_block += (
                 "Previous patches were rejected transactionally. Do not repeat them; correct the reported reason and "
@@ -139,7 +186,8 @@ def build_user_prompt(payload: dict[str, Any]) -> str:
             "Include every field needed to resolve each issue, "
             "but do not include unchanged scenes or explanatory prose. Preserve lyrics and character identity.\n"
             "field_to_change MUST be one of: scene_goal, lyric_interpretation, setting, subjects, action, camera, "
-            "style, safety_adaptation, selected_characters, expected_mood, boundary_behavior, cut. Never patch "
+            "style, safety_adaptation, selected_characters, expected_mood, boundary_behavior, cut, narrative_function, "
+            "relationship_kind, relationship_preserve, relationship_change, relationship_rationale. Never patch "
             "description, video_prompt, first_frame_prompt, lyric_line, subtitle text, or other derived fields because "
             "they are compiled later and the patch will be ignored. Use multiple patch entries when several structured "
             "fields or scenes must change.\n"
@@ -158,14 +206,16 @@ def build_user_prompt(payload: dict[str, Any]) -> str:
         '  "lyrics": ["line 1", "line 2"],\n'
         '  "clip_count": 2,\n'
         '  "target_duration_seconds": 10,\n'
+        '  "arc_summary": "specific character action that sets up, develops, and visibly pays off these exact lyrics",\n'
         '  "visual_bible": {"primary_world": "concise world name", "allowed_locations": ["location"]},\n'
         '  "selected_characters": [\n'
         '    {"label": "character_id", "role": "role", "description": "concise consistent visual description", '
-        '"selection_rationale": "why this character fits the lyrics", "visual_anchors": ["anchor"], "allowed_variants": ["variant"], '
-        '"continuity_constraints": ["constraint"], "negative_constraints": ["avoidance"]}\n'
+        '"selection_rationale": "why this character fits the lyrics"}\n'
         "  ],\n"
         '  "scenes": [\n'
         '    {"scene_num": 1, "lyric_line": "line 1", '
+        '"narrative_function": "setup", '
+        '"relationship_to_previous": {"kind": "opening", "preserve": [], "change": [], "rationale": "establishes the lyric world"}, '
         '"scene_goal": "what this scene must communicate", '
         '"lyric_interpretation": "visual interpretation of the lyric", '
         '"setting": "specific full-frame setting with foreground and background", '
@@ -203,6 +253,18 @@ def build_user_prompt(payload: dict[str, Any]) -> str:
         "start, register, and settle in that time, with one to three visible characters and at most one camera movement. "
         "Avoid complex choreography, simultaneous events, extreme motion, text rendering, and audio-dependent visuals. "
         "Build a mini arc: establish, develop/anticipate, react/pay off, then finish on a satisfying image. "
+        "State that arc in arc_summary before designing shots. For every scene include narrative_function and "
+        "relationship_to_previous with kind, preserve, change, and rationale. Use opening for scene one, then continuation, "
+        "reprise, contrast, or payoff. Same cast/location is continuity. A refrain may reprise earlier staging when motivated, "
+        "but normally show changed story state or closure unless an exact loop was requested. Reject arbitrary variety that "
+        "breaks world geography. "
+        "Arc_summary must name concrete characters, events, and the final visual payoff from the supplied lyrics; never "
+        "copy generic wording from the JSON format example. Relationship change must name an observable difference, "
+        "never 'no change', unless the lyric itself repeats and the user explicitly requests an exact visual loop. "
+        "Never emit placeholder metadata values such as 'variant', 'anchor', 'avoidance', or 'constraint'. Omit optional "
+        "character metadata when no concrete value is needed. "
+        "visual_bible.allowed_locations must contain one to four unique stageable places only. Clock parts, props, "
+        "characters, and repeated names are not locations; never enumerate them in allowed_locations. "
         "Follow the Wan prompt recipe for scene planning. Each clip must support the Advanced Formula: subject plus "
         "subject description, scene plus foreground/background description, motion plus motion description, aesthetic "
         "control, and stylization. Plan this like a normal edited video storyboard, not one continuous shot. Make every "
@@ -235,14 +297,16 @@ def build_user_prompt(payload: dict[str, Any]) -> str:
 
 def validate_decision(decision: dict[str, Any]) -> None:
     if "scene_revisions" in decision:
-        if not isinstance(decision["scene_revisions"], list) or not decision["scene_revisions"]:
-            raise ValueError("revision patch requires non-empty scene_revisions array")
+        if not isinstance(decision["scene_revisions"], list):
+            raise ValueError("revision patch scene_revisions must be an array")
+        if not decision["scene_revisions"] and not decision.get("plan_updates"):
+            raise ValueError("revision patch requires a scene revision or plan update")
         if any(not isinstance(item, dict) or not item.get("scene_num") for item in decision["scene_revisions"]):
             raise ValueError("each scene revision requires scene_num and changed fields")
         return
     if decision.get("type") == "object" and "properties" in decision and "lyrics" not in decision:
         raise ValueError("planner returned a JSON schema instead of a planner decision")
-    required = ["lyrics", "clip_count", "target_duration_seconds", "visual_bible", "selected_characters", "scenes", "music_prompt"]
+    required = ["lyrics", "clip_count", "target_duration_seconds", "arc_summary", "visual_bible", "selected_characters", "scenes", "music_prompt"]
     missing = [key for key in required if key not in decision]
     if missing:
         raise ValueError(f"planner decision missing required keys: {', '.join(missing)}")
@@ -252,8 +316,30 @@ def validate_decision(decision: dict[str, Any]) -> None:
         raise ValueError("planner decision requires non-empty scenes array")
     if not isinstance(decision["selected_characters"], list) or not decision["selected_characters"]:
         raise ValueError("planner decision requires non-empty selected_characters array")
+    visual_bible = decision.get("visual_bible")
+    allowed_locations = visual_bible.get("allowed_locations") if isinstance(visual_bible, dict) else None
+    if not isinstance(allowed_locations, list) or not 1 <= len(allowed_locations) <= 4:
+        raise ValueError("visual_bible requires one to four allowed locations")
+    normalized_locations = {str(value).strip().lower() for value in allowed_locations if str(value).strip()}
+    if len(normalized_locations) != len(allowed_locations):
+        raise ValueError("visual_bible allowed locations must be unique and non-empty")
+    placeholder_values = {"anchor", "avoidance", "constraint", "variant"}
+    for character in decision["selected_characters"]:
+        if not isinstance(character, dict):
+            continue
+        metadata_values = [
+            character.get("allowed_variant"),
+            *(character.get("allowed_variants") or []),
+            *(character.get("visual_anchors") or []),
+            *(character.get("continuity_constraints") or []),
+            *(character.get("negative_constraints") or []),
+        ]
+        if any(str(value).strip().lower() in placeholder_values for value in metadata_values if value is not None):
+            raise ValueError("planner decision contains placeholder character metadata")
     required_scene_fields = {
         "scene_goal",
+        "narrative_function",
+        "relationship_to_previous",
         "lyric_interpretation",
         "setting",
         "subjects",
@@ -269,17 +355,23 @@ def validate_decision(decision: dict[str, Any]) -> None:
         missing_scene = [field for field in required_scene_fields if not scene.get(field)]
         if missing_scene:
             raise ValueError(f"scene {index} missing required structured fields: {', '.join(missing_scene)}")
+        relationship = scene.get("relationship_to_previous")
+        if not isinstance(relationship, dict):
+            raise ValueError(f"scene {index} relationship_to_previous must be an object")
+        relationship_required = ["kind", "preserve", "change", "rationale"]
+        if any(field not in relationship for field in relationship_required):
+            raise ValueError(f"scene {index} relationship_to_previous is incomplete")
+        if relationship.get("kind") not in {
+            "opening", "establishing", "continuation", "continue", "continued", "reprise", "return",
+            "refrain", "contrast", "payoff", "final", "finale", "ending", "resolution",
+        }:
+            raise ValueError(f"scene {index} relationship kind is invalid")
+        for character in scene.get("selected_characters", []):
+            if isinstance(character, dict) and str(character.get("allowed_variant", "")).strip().lower() in placeholder_values:
+                raise ValueError(f"scene {index} contains placeholder character metadata")
 
 
-def generate_with_transformers(
-    model_name: str,
-    user_prompt: str,
-    max_new_tokens: int,
-    *,
-    sample: bool = False,
-    forbidden_words: list[str] | None = None,
-    sample_seed: int | None = None,
-) -> str:
+def load_transformers_runtime(model_name: str) -> tuple[Any, Any, Any]:
     import torch
     from transformers import AutoProcessor, Qwen2VLForConditionalGeneration
 
@@ -293,6 +385,21 @@ def generate_with_transformers(
         model_name,
         local_files_only=os.environ.get("PLANNER_LOCAL_FILES_ONLY", "1") != "0",
     )
+    return torch, model, processor
+
+
+def generate_with_transformers(
+    model_name: str,
+    user_prompt: str,
+    max_new_tokens: int,
+    *,
+    sample: bool = False,
+    forbidden_words: list[str] | None = None,
+    sample_seed: int | None = None,
+    json_validator: Callable[[dict[str, Any]], None] | None = None,
+    runtime: tuple[Any, Any, Any] | None = None,
+) -> str:
+    torch, model, processor = runtime or load_transformers_runtime(model_name)
     messages = [
         {
             "role": "system",
@@ -320,13 +427,14 @@ def generate_with_transformers(
         torch.manual_seed(sample_seed)
         if torch.cuda.is_available():
             torch.cuda.manual_seed_all(sample_seed)
-    for _attempt in range(3 if sample else 1):
+    for _attempt in range(5 if sample else 1):
         generated = model.generate(
             **inputs,
             max_new_tokens=max_new_tokens,
             do_sample=sample,
             temperature=0.35 if sample else None,
             top_p=0.85 if sample else None,
+            repetition_penalty=1.06,
             bad_words_ids=bad_words_ids,
         )
         output_ids = generated[:, prompt_len:]
@@ -336,9 +444,11 @@ def generate_with_transformers(
         if not sample:
             break
         try:
-            extract_json(last_output)
+            parsed = extract_json(last_output)
+            if json_validator is not None:
+                json_validator(parsed)
             break
-        except (json.JSONDecodeError, ValueError):
+        except (json.JSONDecodeError, ValueError, TypeError, KeyError):
             continue
     return last_output
 
@@ -357,6 +467,44 @@ def main() -> int:
     issue_codes = {
         str(issue.get("code", "")) for issue in validation_issues if isinstance(issue, dict)
     }
+    trusted_exact_codes = {
+        "directional_wish_not_staged", "future_return_wish_not_staged",
+        "named_prop_event_not_staged", "nonvisual_relationship_change", "wish_outcome_reversed",
+        "vague_relationship_change", "missing_observable_scene_change",
+    }
+    exact_revisions: dict[tuple[int, str], dict[str, Any]] = {}
+    for issue in validation_issues:
+        if not isinstance(issue, dict) or issue.get("code") not in trusted_exact_codes:
+            continue
+        scene_num = issue.get("scene_num")
+        field = issue.get("field")
+        if not isinstance(scene_num, int) or not isinstance(field, str) or "replacement_value" not in issue:
+            continue
+        exact_revisions[(scene_num, field)] = {
+            "scene_num": scene_num,
+            "field_to_change": field,
+            "replacement_value": issue["replacement_value"],
+        }
+    if exact_revisions:
+        action_scene_nums = {
+            int(issue["scene_num"])
+            for issue in validation_issues
+            if isinstance(issue, dict) and issue.get("field") == "action"
+            and isinstance(issue.get("scene_num"), int)
+        }
+        exact_revisions = {
+            key: revision
+            for key, revision in exact_revisions.items()
+            if not (key[1] == "relationship_change" and key[0] in action_scene_nums)
+        }
+        if exact_revisions:
+            decision = {"scene_revisions": list(exact_revisions.values()), "plan_updates": {}}
+            rendered = json.dumps(decision)
+            if args.debug_output:
+                with open(args.debug_output, "w", encoding="utf-8") as handle:
+                    handle.write(rendered)
+            print(rendered)
+            return 0
     forbidden_words = None
     if "unsafe_visual_action" in issue_codes:
         forbidden_words = [
@@ -366,23 +514,104 @@ def main() -> int:
         ]
     if "repeated_camera_coverage" in issue_codes:
         forbidden_words = [*(forbidden_words or []), "medium shot"]
+    if "audio_or_internal_action" in issue_codes:
+        forbidden_words = [
+            *(forbidden_words or []), "sing", "sings", "singing", "music", "think", "thinks",
+            "thinking", "reflect", "reflects", "reflecting", "imagine", "imagines", "imagining",
+            "enjoy", "enjoys", "enjoying", "ponder", "ponders", "pondering", "contemplate",
+            "contemplates", "contemplating", "talk", "talks", "talking",
+        ]
+    if "adverb_only_action_change" in issue_codes:
+        forbidden_words = [
+            *(forbidden_words or []), "gently", "merrily", "peacefully", "joyfully", "happily",
+        ]
+    if "nonvisual_relationship_change" in issue_codes:
+        forbidden_words = [
+            *(forbidden_words or []), "contentment", "anticipation", "excitement", "joy", "patience",
+            "delight", "feeling", "thought", "reflection",
+        ]
+    if issue_codes.intersection({"directional_wish_not_staged", "future_return_wish_not_staged"}):
+        forbidden_words = [
+            *(forbidden_words or []), "hope", "hopeful", "dance", "dances", "dancing", "spin",
+            "spins", "spinning", "excitement", "anticipation", "gesture", "hands", "face", "puddle",
+            "puddles",
+        ]
     response_key = str(payload.get("context", {}).get("response_key", "planner_revision_1"))
     revision_number_match = re.search(r"(\d+)$", response_key)
     sample_seed = 1701 + (int(revision_number_match.group(1)) if revision_number_match else 0) * 7919
+
+    directional_scenes = {
+        int(issue["scene_num"])
+        for issue in validation_issues
+        if isinstance(issue, dict) and issue.get("code") == "directional_wish_not_staged"
+        and isinstance(issue.get("scene_num"), int)
+    }
+    future_scenes = {
+        int(issue["scene_num"])
+        for issue in validation_issues
+        if isinstance(issue, dict) and issue.get("code") == "future_return_wish_not_staged"
+        and isinstance(issue.get("scene_num"), int)
+    }
+    nonvisual_relationship_scenes = {
+        int(issue["scene_num"])
+        for issue in validation_issues
+        if isinstance(issue, dict) and issue.get("code") == "nonvisual_relationship_change"
+        and isinstance(issue.get("scene_num"), int)
+    }
+
+    def validate_generated_decision(decision: dict[str, Any]) -> None:
+        validate_decision(decision)
+        if not (directional_scenes or future_scenes or nonvisual_relationship_scenes):
+            return
+        action_revisions = {
+            int(item["scene_num"]): str(item.get("replacement_value", ""))
+            for item in decision.get("scene_revisions", [])
+            if isinstance(item, dict) and item.get("field_to_change") == "action"
+            and isinstance(item.get("scene_num"), int)
+        }
+        for scene_num in directional_scenes:
+            replacement = action_revisions.get(scene_num, "").lower()
+            if not re.search(
+                r"(?:cloud|rain|storm|weather).*(?:clear|depart|drift|float|move|retreat).*(?:away|off)|"
+                r"(?:clear|depart|drift|float|move|retreat).*(?:cloud|rain|storm|weather)",
+                replacement,
+            ):
+                raise ValueError(f"scene {scene_num} must visibly stage the requested departure")
+        for scene_num in future_scenes:
+            replacement = action_revisions.get(scene_num, "").lower()
+            if not re.search(r"\b(later|return|returns|returning|tomorrow|horizon)\b", replacement):
+                raise ValueError(f"scene {scene_num} must include a visible future-return cue")
+        relationship_revisions = {
+            int(item["scene_num"]): item.get("replacement_value")
+            for item in decision.get("scene_revisions", [])
+            if isinstance(item, dict) and item.get("field_to_change") == "relationship_change"
+            and isinstance(item.get("scene_num"), int)
+        }
+        for scene_num in nonvisual_relationship_scenes:
+            replacement = relationship_revisions.get(scene_num, "")
+            text = " ".join(replacement) if isinstance(replacement, list) else str(replacement)
+            if re.search(
+                r"\b(contentment|anticipation|excitement|joy|patience|delight|feeling|thought|reflection|"
+                r"eager|eagerness|happy|happiness|sad|sadness)\b",
+                text.lower(),
+            ) or len(text.strip()) < 12:
+                raise ValueError(f"scene {scene_num} relationship_change must name a visible action")
+
     raw = generate_with_transformers(
         args.model,
         user_prompt,
         args.max_new_tokens,
-        sample=is_revision,
+        sample=True,
         forbidden_words=forbidden_words,
-        sample_seed=sample_seed if is_revision else None,
+        sample_seed=sample_seed if is_revision else 1701,
+        json_validator=validate_generated_decision,
     )
     if args.debug_output:
         with open(args.debug_output, "w", encoding="utf-8") as handle:
             handle.write(raw)
     try:
         decision = extract_json(raw)
-        validate_decision(decision)
+        validate_generated_decision(decision)
     except Exception as exc:
         print(f"local_lullaby_planner invalid model output: {exc}", file=sys.stderr)
         print(raw[:4000], file=sys.stderr)

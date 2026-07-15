@@ -16,6 +16,9 @@ AGENTIC_DIR="${STORYMEM_AGENTIC_DIR:-/scratch/gautschi/bansa125/storymem-agentic
 VENV_DIR="${VENV_DIR:-${AGENTIC_DIR}/.venv}"
 VALIDATION_ROOT="${VALIDATION_ROOT:-${AGENTIC_DIR}/results/varied_planner_validation_${SLURM_JOB_ID}}"
 PLANNER_MODEL="${PLANNER_MODEL:-Qwen/Qwen2-VL-7B-Instruct}"
+ONLY_SLUG="${ONLY_SLUG:-}"
+MAX_PLAN_REVISIONS="${MAX_PLAN_REVISIONS:-8}"
+PRODUCTION_PLAN_PATH="${PRODUCTION_PLAN_PATH:-}"
 
 module load python
 source "${VENV_DIR}/bin/activate"
@@ -44,10 +47,17 @@ LYRICS_FILES=(
 for index in "${!TOPICS[@]}"; do
   topic="${TOPICS[$index]}"
   slug="${SLUGS[$index]}"
+  if [ -n "${ONLY_SLUG}" ] && [ "${slug}" != "${ONLY_SLUG}" ]; then
+    continue
+  fi
   lyrics_file="${LYRICS_FILES[$index]}"
   output="${VALIDATION_ROOT}/${slug}"
   planner_cmd="${VENV_DIR}/bin/python ${AGENTIC_DIR}/scripts/local_lullaby_planner.py --model ${PLANNER_MODEL} --debug-output ${output}/planner_raw_output.txt"
   critic_cmd="${VENV_DIR}/bin/python ${AGENTIC_DIR}/scripts/local_plan_critic.py --model ${PLANNER_MODEL} --debug-output ${output}/plan_critic_raw_output.txt"
+  production_plan_args=()
+  if [ -n "${PRODUCTION_PLAN_PATH}" ]; then
+    production_plan_args=(--production-plan "${PRODUCTION_PLAN_PATH}")
+  fi
 
   python -m storymem_agentic.cli plan \
     --topic "${topic}" \
@@ -56,9 +66,11 @@ for index in "${!TOPICS[@]}"; do
     --clip-count 4 \
     --target-duration 20 \
     --seed "$((710 + index))" \
+    "${production_plan_args[@]}" \
     --planner-backend command \
     --planner-command "${planner_cmd}" \
     --plan-critic-command "${critic_cmd}" \
+    --max-plan-revisions "${MAX_PLAN_REVISIONS}" \
     --review-backend mock \
     --audio-aligner none \
     --no-generate-audio
@@ -79,9 +91,28 @@ for run_dir in sorted(path for path in root.iterdir() if path.is_dir()):
     prompts = [scene["video_prompt"] for scene in scenes]
     distinct = len(set(prompts)) == len(prompts)
     lengths = [len(prompt) for prompt in prompts]
+    relationships_complete = all(
+        scene.get("narrative_function")
+        and scene.get("relationship_kind")
+        and scene.get("relationship_rationale")
+        and (scene["scene_num"] == 1 or scene.get("relationship_change"))
+        for scene in scenes
+    )
+    weak_changes = {"no change", "none", "unchanged", "same", "n/a", "na"}
+    honest_repetition = all(
+        not (
+            current.get("relationship_kind") in {"continuation", "reprise"}
+            and all(current.get(field) == previous.get(field) for field in ("setting", "subjects", "action", "camera"))
+            and {str(value).strip().lower() for value in current.get("relationship_change", [])}.issubset(weak_changes)
+        )
+        for previous, current in zip(scenes, scenes[1:])
+    )
     valid = (
         not planner["used_fallback"]
         and planner["validation_passed"]
+        and bool(plan.get("arc_summary"))
+        and relationships_complete
+        and honest_repetition
         and len(scenes) == 4
         and distinct
         and all(300 <= length <= 900 for length in lengths)
@@ -95,6 +126,8 @@ for run_dir in sorted(path for path in root.iterdir() if path.is_dir()):
         "validation_issue_count": planner["validation_issue_count"],
         "scene_count": len(scenes),
         "distinct_prompts": distinct,
+        "relationships_complete": relationships_complete,
+        "honest_repetition": honest_repetition,
         "prompt_lengths": lengths,
         "lyrics": [lyric_by_index[scene["lyric_segment_index"]] for scene in scenes],
         "prompts": prompts,

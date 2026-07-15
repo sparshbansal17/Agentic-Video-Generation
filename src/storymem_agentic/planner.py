@@ -101,6 +101,7 @@ PLANNER_DECISION_SCHEMA: dict[str, Any] = {
         "lyrics",
         "clip_count",
         "target_duration_seconds",
+        "arc_summary",
         "visual_bible",
         "selected_characters",
         "scenes",
@@ -110,6 +111,7 @@ PLANNER_DECISION_SCHEMA: dict[str, Any] = {
         "lyrics": {"type": "array", "items": {"type": "string"}},
         "clip_count": {"type": "integer"},
         "target_duration_seconds": {"type": "number"},
+        "arc_summary": {"type": "string"},
         "visual_bible": {"type": "object"},
         "selected_characters": {"type": "array", "items": {"type": "object"}},
         "characters": {"type": "array", "items": {"type": "object"}},
@@ -134,6 +136,7 @@ PLAN_CRITIC_SCHEMA: dict[str, Any] = {
                     "message": {"type": "string"},
                     "scene_num": {"type": ["integer", "null"]},
                     "field": {"type": ["string", "null"]},
+                    "editable_fields": {"type": "array", "items": {"type": "string"}},
                     "evidence": {
                         "type": "object",
                         "required": ["observed", "expected", "source"],
@@ -306,6 +309,40 @@ def _planner_input_context(rhyme: NurseryRhymeInput) -> dict[str, Any]:
     return payload
 
 
+RELATIONSHIP_KINDS = {"opening", "continuation", "reprise", "contrast", "payoff"}
+
+
+def _scene_relationship(raw: dict[str, Any], index: int) -> dict[str, Any]:
+    relationship = raw.get("relationship_to_previous")
+    if not isinstance(relationship, dict):
+        relationship = {}
+    kind = str(
+        relationship.get("kind")
+        or raw.get("relationship_kind")
+        or ("opening" if index == 1 else "unspecified")
+    ).strip().lower()
+    kind = {
+        "establishing": "opening",
+        "continue": "continuation",
+        "continued": "continuation",
+        "return": "reprise",
+        "refrain": "reprise",
+        "final": "payoff",
+        "finale": "payoff",
+        "ending": "payoff",
+        "resolution": "payoff",
+    }.get(kind, kind)
+    preserve = relationship.get("preserve", raw.get("relationship_preserve", []))
+    change = relationship.get("change", raw.get("relationship_change", []))
+    rationale = relationship.get("rationale", raw.get("relationship_rationale", ""))
+    return {
+        "kind": kind,
+        "preserve": _list_from_decision(preserve),
+        "change": _list_from_decision(change),
+        "rationale": _clean_sentence(str(rationale or "")),
+    }
+
+
 
 
 def _scene_description_is_specific(text: str) -> bool:
@@ -425,8 +462,8 @@ def _strip_scene_production_notes(description: str) -> str:
     match = split_pattern.search(scene_text)
     if match:
         scene_text = scene_text[: match.start()].strip(" ,;.")
-    if len(scene_text) > 280:
-        scene_text = scene_text[:280].rsplit(" ", 1)[0].rstrip(" ,;.")
+    if len(scene_text) > 340:
+        scene_text = scene_text[:340].rsplit(" ", 1)[0].rstrip(" ,;.")
     return _sentence_case(scene_text) + "."
 
 
@@ -493,9 +530,9 @@ def _storyboard_prompt(
         staging = f"; {_shot_pattern(index)}"
     return (
         f"Scene {index} of {clip_count}, [{start:.1f}-{end:.1f}s], toddler-safe lullaby animation: "
-        f"{scene_text} {camera_text}. "
-        f"{style}{staging}; soft bedtime mood, rounded shapes, gentle motion. "
-        "Use StoryMem keyframe memory for character/style consistency; this prompt controls the new scene layout. "
+        f"Opening frame: {scene_text} {camera_text}. "
+        f"{style}{staging}. "
+        "StoryMem keyframe memory preserves identity/style; this prompt controls the new scene layout. "
         f"No dialogue or background music, {text_guard}, no picture-in-picture, no inset frame, no scary elements."
     )
 
@@ -568,6 +605,15 @@ def build_production_plan(rhyme: NurseryRhymeInput, *, target_fps: int = 24) -> 
                 style=rhyme.visual_style,
                 safety_adaptation="no generated text, no dialogue, no inset frame, no scary imagery",
                 selected_characters=selected_characters,
+                narrative_function=("setup" if index == 1 else "resolution" if index == clip_count else "development"),
+                relationship_kind=("opening" if index == 1 else "contrast"),
+                relationship_preserve=[] if index == 1 else ["same lullaby world", "same lead character identity"],
+                relationship_change=[] if index == 1 else ["new lyric beat", "new planned coverage"],
+                relationship_rationale=(
+                    "establishes the story world"
+                    if index == 1
+                    else "the next lyric advances the dry-run diagnostic sequence"
+                ),
                 review_status="approved",
             )
         )
@@ -577,7 +623,7 @@ def build_production_plan(rhyme: NurseryRhymeInput, *, target_fps: int = 24) -> 
         "music box, celesta, glockenspiel shimmer, soft strings, gentle fade-out"
     )
     plan = ProductionPlan(
-        version="1.0",
+        version="1.1",
         rhyme=rhyme,
         clip_count=clip_count,
         target_fps=target_fps,
@@ -587,6 +633,7 @@ def build_production_plan(rhyme: NurseryRhymeInput, *, target_fps: int = 24) -> 
         audio_mode="full_song",
         music_prompt=music_prompt,
         evaluation_rubric={**DEFAULT_RUBRIC, "planning_mode": "non_agentic_local_dry_run"},
+        arc_summary="A diagnostic setup-development-resolution scaffold requiring agentic semantic planning before generation.",
     )
     plan.validate()
     return plan
@@ -595,6 +642,9 @@ def build_production_plan(rhyme: NurseryRhymeInput, *, target_fps: int = 24) -> 
 def _planner_prompt() -> str:
     return (
         "You are ScenePlannerAgent for a local-first StoryMem lullaby video pipeline. "
+        "Work in two deliberate stages before returning JSON: first design a lyric-faithful narrative beat sheet with "
+        "setup, development, payoff, and a policy for any refrain; then expand that logic into concrete five-second shots. "
+        "Do not begin with camera choices and invent a story around them. "
         "Given the user input, produce only strict JSON. If lyrics are supplied, preserve them exactly. "
         "If only a lullaby name/topic is supplied, generate or select the appropriate full lullaby lyrics; "
         "do not ask for missing clip count, duration, style, characters, timing, or scenes. "
@@ -606,7 +656,9 @@ def _planner_prompt() -> str:
         "visual_style, audio_style, lyrics, character_bank_path, and character_db_path. "
         "If a character bank is supplied, inspect all entries and choose relevant characters agentically. "
         "For every selected character include label, description, and selection_rationale. For every scene include "
-        "selected_characters with label and selection_rationale. Do not rely on downstream keyword matching. "
+        "selected_characters with label and selection_rationale. A scene may include allowed_variant, but it must exactly "
+        "match one of that character's bank variants. Treat visual anchors and continuity constraints as immutable identity, "
+        "not instructions to repeat the same pose, layout, or framing. Do not rely on downstream keyword matching. "
         "Only invent a generic missing character when no bank entry fits a needed role, and make that character "
         "simple, named, and consistent. "
         "StoryMem generates one short video clip per scene prompt; each generated clip is approximately five seconds. "
@@ -638,6 +690,12 @@ def _planner_prompt() -> str:
         "important prop, and tracking/reveal/overhead angles only when motivated by the action. Do not change locations "
         "randomly merely to appear different; preserve world geography while changing foreground, subject distance, "
         "screen direction, action, or point of view. "
+        "For each scene declare narrative_function and relationship_to_previous with kind, preserve, change, and rationale. "
+        "The first kind is opening; later kinds are continuation, reprise, contrast, or payoff. Preserve lists identity, "
+        "world geography, props, or composition intentionally retained. Change lists concrete observable story state, "
+        "action, staging, subject distance, or coverage changes. The rationale must cite the lyric or causal arc. Same "
+        "location or cast is continuity, not a defect. Repetition is valid for a motivated continuation or refrain, but a "
+        "reprise should normally reveal changed story state or closure unless the user explicitly requested a visual loop. "
         "Make adjacent lyric beats observably different: changing only an adverb, mood, or camera while repeating the "
         "same subject action is not progression. Introduce supporting characters only when they participate in the lyric "
         "or causal visual story. Describe settings as one physically coherent, generatable space, and translate abstract "
@@ -664,11 +722,13 @@ def _planner_prompt() -> str:
         "and background music, because audio and subtitles are handled separately. "
         "For unsafe lyric events involving unsupported descent, breakage, dropping, crashing, impact, or dangerous "
         "motion by a child, character, prop, vehicle, support, or object, do not visualize the hazard. Adapt the "
-        "scene into visibly safe supported motion and remove hazardous wording from structured fields. "
+        "scene into visibly safe supported motion and remove hazardous wording from structured fields while preserving "
+        "the causal beat. Never flatten a multi-scene event into repeated safe poses: retain a distinct setup, supported "
+        "transformation, and payoff. "
         "Return JSON matching the schema: lyrics as an array of lyric lines; clip_count; target_duration_seconds; "
-        "visual_bible; selected_characters with label, description, selection_rationale, continuity_constraints, "
+        "arc_summary; visual_bible; selected_characters with label, description, selection_rationale, continuity_constraints, "
         "negative_constraints, optional reference_image_paths; "
-        "scenes with scene_num, lyric_line, scene_goal, lyric_interpretation, setting, subjects, action, camera, "
+        "scenes with scene_num, lyric_line, narrative_function, relationship_to_previous, scene_goal, lyric_interpretation, setting, subjects, action, camera, "
         "style, safety_adaptation, selected_characters, expected_mood, boundary_behavior, optional cut, and review_status='pending'. "
         "Scene descriptions should describe visual meaning without copying literal lyric text into the visual prompt. "
         "Return music_prompt for the separate continuous full-song audio. "
@@ -763,6 +823,68 @@ def _visible_action_replacement(action: str) -> str | None:
 def validate_plan_semantics(plan: ProductionPlan, *, require_reviewer_approval: bool = True) -> dict[str, Any]:
     issues: list[dict[str, Any]] = []
     plan.validate()
+
+    def observable_change(scene: SceneBeat) -> list[str]:
+        if scene.scene_num <= 1:
+            return []
+        previous = plan.scenes[scene.scene_num - 2]
+        for field_name, label in (
+            ("action", "visible action"),
+            ("setting", "visible setting"),
+            ("subjects", "visible subjects"),
+            ("camera", "camera composition"),
+        ):
+            current_value = _clean_sentence(getattr(scene, field_name, ""))
+            previous_value = _clean_sentence(getattr(previous, field_name, ""))
+            if current_value.lower() != previous_value.lower():
+                return [f"{label} changes to: {current_value}"]
+        return ["the scene intentionally preserves the preceding visible staging"]
+    if not plan.arc_summary.strip():
+        issues.append(
+            {
+                "code": "missing_story_arc",
+                "scene_num": None,
+                "field": "arc_summary",
+                "message": "the planner must state the setup-development-payoff arc before designing shots",
+                "editable_fields": ["arc_summary"],
+            }
+        )
+    elif _clean_sentence(plan.arc_summary).lower() in {
+        "setup development payoff and refrain strategy",
+        "setup development and payoff",
+        "setup development payoff",
+    }:
+        issues.append(
+            {
+                "code": "generic_story_arc",
+                "scene_num": None,
+                "field": "arc_summary",
+                "message": "the story arc must name the concrete lyric events and payoff, not repeat the planning template",
+                "editable_fields": ["arc_summary"],
+            }
+        )
+    bank_by_label = {
+        _character_lookup_key(profile.label): profile
+        for profile in plan.character_bank
+    }
+    placeholder_metadata = {"anchor", "avoidance", "constraint", "variant"}
+    for profile in plan.character_bank:
+        profile_metadata = [
+            *profile.visual_anchors,
+            *profile.allowed_variants,
+            *profile.continuity_constraints,
+            *profile.negative_constraints,
+        ]
+        if any(str(value).strip().lower() in placeholder_metadata for value in profile_metadata):
+            issues.append(
+                {
+                    "code": "placeholder_character_metadata",
+                    "scene_num": None,
+                    "field": "selected_characters",
+                    "message": "character metadata must contain concrete visual constraints rather than template placeholders",
+                    "editable_fields": ["selected_characters"],
+                }
+            )
     required_scene_fields = [
         "scene_goal",
         "lyric_interpretation",
@@ -775,6 +897,57 @@ def validate_plan_semantics(plan: ProductionPlan, *, require_reviewer_approval: 
     ]
     for scene in plan.scenes:
         lower_prompt = scene.video_prompt.lower()
+        relationship_fields = [
+            scene.narrative_function,
+            scene.relationship_kind,
+            scene.relationship_rationale,
+        ]
+        if any(not str(value).strip() or str(value).strip() == "unspecified" for value in relationship_fields):
+            issues.append(
+                {
+                    "code": "missing_scene_relationship",
+                    "scene_num": scene.scene_num,
+                    "message": "scene must declare its narrative function and motivated relationship to adjacent beats",
+                    "editable_fields": [
+                        "narrative_function",
+                        "relationship_kind",
+                        "relationship_preserve",
+                        "relationship_change",
+                        "relationship_rationale",
+                    ],
+                }
+            )
+        elif scene.scene_num == 1 and scene.relationship_kind != "opening":
+            issues.append(
+                {
+                    "code": "invalid_opening_relationship",
+                    "scene_num": scene.scene_num,
+                    "field": "relationship_kind",
+                    "message": "the first scene relationship must be opening",
+                    "replacement_value": "opening",
+                }
+            )
+        elif scene.scene_num > 1 and scene.relationship_kind == "opening":
+            issues.append(
+                {
+                    "code": "invalid_later_opening_relationship",
+                    "scene_num": scene.scene_num,
+                    "field": "relationship_kind",
+                    "message": "later scenes must relate to the established story",
+                }
+            )
+        if scene.scene_num > 1 and scene.relationship_kind != "unspecified" and not scene.relationship_change:
+            issues.append(
+                {
+                    "code": "missing_observable_scene_change",
+                    "scene_num": scene.scene_num,
+                    "field": "relationship_change",
+                    "message": "state what visibly develops even when the shot intentionally continues or reprises an earlier beat",
+                    "suggested_change": "name the concrete visible action that distinguishes this scene",
+                    "replacement_value": observable_change(scene),
+                    "editable_fields": ["relationship_change", "relationship_rationale"],
+                }
+            )
         for field_name in required_scene_fields:
             if not str(getattr(scene, field_name, "")).strip():
                 issues.append({"code": "missing_structured_scene_field", "field": field_name, "scene_num": scene.scene_num, "message": f"scene missing {field_name}"})
@@ -782,6 +955,24 @@ def validate_plan_semantics(plan: ProductionPlan, *, require_reviewer_approval: 
             issues.append({"code": "missing_character_selection_metadata", "scene_num": scene.scene_num, "message": "scene must include selected character metadata"})
         elif any(not str(item.get("label", "")).strip() or not str(item.get("selection_rationale", item.get("rationale", ""))).strip() for item in scene.selected_characters if isinstance(item, dict)):
             issues.append({"code": "incomplete_character_selection_metadata", "scene_num": scene.scene_num, "message": "selected characters require label and rationale"})
+        for item in scene.selected_characters:
+            if not isinstance(item, dict) or not item.get("allowed_variant"):
+                continue
+            profile = bank_by_label.get(_character_lookup_key(str(item.get("label", ""))))
+            if profile and str(item["allowed_variant"]) not in profile.allowed_variants:
+                issues.append(
+                    {
+                        "code": "invalid_character_variant",
+                        "scene_num": scene.scene_num,
+                        "field": "selected_characters",
+                        "message": "scene character variants must come from the supplied character bank",
+                        "evidence": {
+                            "observed": str(item["allowed_variant"]),
+                            "expected": json.dumps(profile.allowed_variants),
+                            "source": f"character_bank.{profile.label}.allowed_variants",
+                        },
+                    }
+                )
         if len(scene.selected_characters) > 3:
             issues.append(
                 {
@@ -871,6 +1062,102 @@ def validate_plan_semantics(plan: ProductionPlan, *, require_reviewer_approval: 
                 }
             )
         action_lower = scene.action.lower().strip()
+        lyric_lower = scene.subtitle_text.lower().strip()
+        agentic_scene = not any(
+            "non-agentic" in str(value).lower() for value in (scene.scene_goal, scene.description)
+        )
+        if agentic_scene and re.search(r"\b(?:physical visible meaning|required by (?:the )?lyric|visible action required|stageable action)\b", action_lower):
+            issues.append(
+                {
+                    "code": "meta_action_placeholder",
+                    "scene_num": scene.scene_num,
+                    "field": "action",
+                    "message": "action contains planning instructions instead of a concrete visible event",
+                    "evidence": {"observed": scene.action, "expected": "a physical subject action", "source": "action"},
+                    "editable_fields": ["action"],
+                }
+            )
+        if agentic_scene and "go away" in lyric_lower and not re.search(
+            r"\b(away|clear(?:s|ing|ed)?|depart(?:s|ing|ed)?|drift(?:s|ing|ed)? (?:off|away)|"
+            r"leave|leaves|leaving|retreat(?:s|ing|ed)?|wave(?:s|d|ing)? goodbye)\b",
+            action_lower,
+        ):
+            earlier_matching_lyric = any(
+                prior.scene_num < scene.scene_num
+                and _clean_sentence(prior.subtitle_text).lower() == _clean_sentence(scene.subtitle_text).lower()
+                for prior in plan.scenes
+            )
+            issues.append(
+                {
+                    "code": "directional_wish_not_staged",
+                    "scene_num": scene.scene_num,
+                    "field": "action",
+                    "message": "the visible action must depict the requested departure rather than ongoing activity in the unwanted condition",
+                    "evidence": {"observed": scene.action, "expected": "a gesture and visible departure or clearing", "source": scene.subtitle_text},
+                    "suggested_change": "show the requested weather departure as a concrete cause-and-effect action",
+                    "replacement_value": (
+                        "The last raincloud drifts away beyond the horizon as the child closes the umbrella and runs toward the waiting play area"
+                        if earlier_matching_lyric
+                        else "The child waves goodbye as the raincloud drifts away beyond the playground and a sunbeam reaches the play area"
+                    ),
+                    "editable_fields": ["scene_goal", "lyric_interpretation", "action", "relationship_change"],
+                }
+            )
+        if (
+            agentic_scene
+            and "go away" in lyric_lower
+            and re.search(r"\b(sad|sadness|cry|cries|crying|disappointed|upset)\b", scene.lyric_interpretation.lower())
+        ):
+            issues.append(
+                {
+                    "code": "wish_outcome_reversed",
+                    "scene_num": scene.scene_num,
+                    "field": "lyric_interpretation",
+                    "message": "the interpretation reverses the requested outcome by treating the desired departure as unwanted",
+                    "evidence": {
+                        "observed": scene.lyric_interpretation,
+                        "expected": "the subject welcomes the requested clearing",
+                        "source": scene.subtitle_text,
+                    },
+                    "suggested_change": "align the reaction with the fulfilled directional wish",
+                    "replacement_value": "The child welcomes the clearing sky and returns to play",
+                    "editable_fields": ["lyric_interpretation", "action", "expected_mood"],
+                }
+            )
+        if agentic_scene and "another day" in lyric_lower and not re.search(
+            r"\b(another day|later|return(?:s|ing|ed)?|tomorrow|horizon|wave(?:s|d|ing)? goodbye|"
+            r"sun (?:appears|emerges|returns)|cloud(?:s)? (?:drift|move|float)(?:s|ing|ed)? away)\b",
+            action_lower,
+        ):
+            issues.append(
+                {
+                    "code": "future_return_wish_not_staged",
+                    "scene_num": scene.scene_num,
+                    "field": "action",
+                    "message": "the action must visibly communicate departure now with a future return, not present play or waiting",
+                    "evidence": {"observed": scene.action, "expected": "a visible goodbye/departure and later-return cue", "source": scene.subtitle_text},
+                    "suggested_change": "show departure now and a visible cue that the weather may return later",
+                    "replacement_value": "The child points toward the raincloud receding on the horizon and waves goodbye for its later return",
+                    "editable_fields": ["scene_goal", "lyric_interpretation", "action", "relationship_change"],
+                }
+            )
+        if agentic_scene and re.search(r"\bclock struck\b", lyric_lower) and not re.search(
+            r"\b(chime(?:s|d|ing)?|clock hand(?:s)? (?:reaches|snaps|points|moves)|ring(?:s|ing|rang)?|"
+            r"strike(?:s|ing|struck)?|bell(?:s)? (?:moves|swings))\b",
+            action_lower,
+        ):
+            issues.append(
+                {
+                    "code": "named_prop_event_not_staged",
+                    "scene_num": scene.scene_num,
+                    "field": "action",
+                    "message": "the action must show the lyric's named prop event before advancing to the next lyric",
+                    "evidence": {"observed": scene.action, "expected": "the clock visibly marks or chimes one", "source": scene.subtitle_text},
+                    "suggested_change": "stage the named clock event before the mouse begins the next lyric's motion",
+                    "replacement_value": "The clock hand snaps gently to one while the bell swings once and the mouse pauses beside the clock face",
+                    "editable_fields": ["scene_goal", "lyric_interpretation", "action", "camera", "relationship_change"],
+                }
+            )
         if re.match(r"^camera\b", action_lower):
             issues.append(
                 {
@@ -881,7 +1168,7 @@ def validate_plan_semantics(plan: ProductionPlan, *, require_reviewer_approval: 
                     "evidence": {"observed": scene.action, "expected": "visible subject action", "source": "action"},
                 }
             )
-        if re.search(r"\b(?:sing|sings|singing|sang|say|says|saying|ask|asks|asking|speak|speaks|speaking|tune|music|think|thinks|thinking|reflect|reflects|reflecting|imagine|imagines|imagining|enjoy|enjoys|enjoying)\b", action_lower):
+        if re.search(r"\b(?:sing|sings|singing|sang|say|says|saying|talk|talks|talking|ask|asks|asking|speak|speaks|speaking|tune|music|think|thinks|thinking|ponder|ponders|pondering|contemplate|contemplates|contemplating|reflect|reflects|reflecting|imagine|imagines|imagining|enjoy|enjoys|enjoying)\b", action_lower):
             replacement = _visible_action_replacement(scene.action)
             issues.append(
                 {
@@ -909,35 +1196,196 @@ def validate_plan_semantics(plan: ProductionPlan, *, require_reviewer_approval: 
                 "message": "the first StoryMem shot must start a new scene with cut=true",
             }
         )
-    camera_groups: dict[str, list[int]] = {}
-    for scene in plan.scenes:
-        key = re.sub(r"\b(camera|shot|the|a|an)\b", " ", _clean_sentence(scene.camera).lower())
-        key = " ".join(key.split())
-        camera_groups.setdefault(key, []).append(scene.scene_num)
-    for camera, scene_nums in camera_groups.items():
-        if camera and len(scene_nums) >= 3:
-            for scene_num in scene_nums[2:]:
-                issues.append(
-                    {
-                        "code": "repeated_camera_coverage",
-                        "scene_num": scene_num,
-                        "field": "camera",
-                        "message": "the storyboard repeats the same camera coverage across three or more shots",
-                        "evidence": {
-                            "observed": camera,
-                            "expected": "distinct motivated coverage for this shot",
-                            "source": f"camera fields in scenes {scene_nums}",
-                        },
-                        "suggested_change": "use distinct coverage without changing scene semantics",
-                        "replacement_value": _scene_camera_plan(scene_num),
-                    }
-                )
     for current, previous in zip(plan.scenes[1:], plan.scenes):
         agentic_pair = not any(
             "non-agentic" in str(value).lower()
             for value in (current.scene_goal, previous.scene_goal, current.description, previous.description)
         )
-        if agentic_pair and _clean_sentence(current.action).lower() == _clean_sentence(previous.action).lower():
+        repetition_is_declared = current.relationship_kind in {"continuation", "reprise"}
+        exact_staging_repeat = all(
+            _clean_sentence(getattr(current, field_name, "")).lower()
+            == _clean_sentence(getattr(previous, field_name, "")).lower()
+            for field_name in ("setting", "subjects", "action", "camera")
+        )
+        change_claims = {
+            _clean_sentence(value).lower()
+            for value in current.relationship_change
+            if str(value).strip()
+        }
+        weak_change_claims = {"no change", "none", "unchanged", "same", "n a", "na"}
+        change_claim_text = " ".join(change_claims)
+        mood_adverbs = re.compile(
+            r"\b(?:calmly|contentedly|dreamily|gently|gladly|happily|joyfully|merrily|peacefully|"
+            r"playfully|quietly|serenely|softly|slowly|warmly)\b"
+        )
+        current_action_signature = re.sub(
+            r"\s+", " ", mood_adverbs.sub("", _clean_sentence(current.action).lower())
+        ).strip(" .,;:")
+        previous_action_signature = re.sub(
+            r"\s+", " ", mood_adverbs.sub("", _clean_sentence(previous.action).lower())
+        ).strip(" .,;:")
+        same_lyric = _clean_sentence(current.subtitle_text).lower() == _clean_sentence(previous.subtitle_text).lower()
+        explicit_loop = (
+            current.relationship_kind == "reprise"
+            and re.search(r"\b(exact loop|refrain|repeated lyric|chorus)\b", current.relationship_rationale.lower())
+        )
+        earlier_same_lyric = next(
+            (
+                scene for scene in plan.scenes
+                if scene.scene_num < previous.scene_num
+                and _clean_sentence(scene.subtitle_text).lower()
+                == _clean_sentence(current.subtitle_text).lower()
+            ),
+            None,
+        )
+        if (
+            current.relationship_kind == "reprise"
+            and _clean_sentence(current.action).lower() == _clean_sentence(previous.action).lower()
+            and not same_lyric
+            and (
+                earlier_same_lyric is None
+                or _clean_sentence(current.action).lower()
+                != _clean_sentence(earlier_same_lyric.action).lower()
+            )
+        ):
+            issues.append(
+                {
+                    "code": "misstaged_reprise",
+                    "scene_num": current.scene_num,
+                    "field": "action",
+                    "message": "a reprise repeats the preceding different lyric's action instead of visibly returning to its own earlier beat",
+                    "evidence": {
+                        "observed": current.action,
+                        "expected": earlier_same_lyric.action if earlier_same_lyric else "a distinct visible reprise beat",
+                        "source": (
+                            f"lyric reprise comparison with scene {earlier_same_lyric.scene_num}"
+                            if earlier_same_lyric else f"comparison with scene {previous.scene_num}"
+                        ),
+                    },
+                    "editable_fields": [
+                        "scene_goal", "lyric_interpretation", "action", "camera", "relationship_preserve",
+                        "relationship_change", "relationship_rationale",
+                    ],
+                }
+            )
+        if (
+            current_action_signature == previous_action_signature
+            and _clean_sentence(current.action).lower() != _clean_sentence(previous.action).lower()
+            and not same_lyric
+            and not explicit_loop
+        ):
+            issues.append(
+                {
+                    "code": "adverb_only_action_change",
+                    "scene_num": current.scene_num,
+                    "field": "action",
+                    "message": "the new lyric changes only a mood adverb while preserving the same physical action",
+                    "evidence": {
+                        "observed": current.action,
+                        "expected": "a distinct visible gesture, interaction, reaction, transformation, or payoff",
+                        "source": f"action comparison with scene {previous.scene_num}",
+                    },
+                    "editable_fields": [
+                        "scene_goal", "lyric_interpretation", "action", "camera", "relationship_change",
+                        "relationship_rationale",
+                    ],
+                }
+            )
+        generic_change_claims = {
+            "action", "camera", "character", "characters", "coverage", "framing", "location",
+            "place", "scene", "setting", "shot", "stream", "subject", "subjects", "world",
+        }
+        if change_claims and all(
+            claim in generic_change_claims or len(claim.split()) < 3
+            for claim in change_claims
+        ):
+            issues.append(
+                {
+                    "code": "vague_relationship_change",
+                    "scene_num": current.scene_num,
+                    "field": "relationship_change",
+                    "message": "relationship_change must name the concrete observable state or action that differs, not a field label or vague noun",
+                    "evidence": {
+                        "observed": current.relationship_change,
+                        "expected": "a concrete visible change such as 'wind begins moving the cradle'",
+                        "source": f"comparison with scene {previous.scene_num}",
+                    },
+                    "suggested_change": "replace the vague label with the scene's concrete visible action",
+                    "replacement_value": observable_change(current),
+                    "editable_fields": ["relationship_preserve", "relationship_change", "relationship_rationale"],
+                }
+            )
+        if re.search(
+            r"\b(enjoy(?:s|ed|ing|ment)?|feel(?:s|ing)?|imagin(?:e|es|ed|ing)|reflection|"
+            r"reflect(?:s|ed|ing)?|savor(?:s|ed|ing)?|think(?:s|ing)?|thought|wonder(?:s|ed|ing)?|"
+            r"delight(?:s|ed|ing|ful)?|contentment|excitement|joy|patience|anticipation)\b",
+            change_claim_text,
+        ):
+            issues.append(
+                {
+                    "code": "nonvisual_relationship_change",
+                    "scene_num": current.scene_num,
+                    "field": "relationship_change",
+                    "message": "relationship_change must describe visible story state rather than an internal feeling or thought",
+                    "evidence": {
+                        "observed": current.relationship_change,
+                        "expected": "a visible gesture, interaction, prop state, spatial state, or transformation",
+                        "source": f"comparison with scene {previous.scene_num}",
+                    },
+                    "suggested_change": "replace the internal-state claim with the scene's concrete visible action",
+                    "replacement_value": observable_change(current),
+                    "editable_fields": [
+                        "scene_goal", "lyric_interpretation", "action", "relationship_change",
+                        "relationship_rationale",
+                    ],
+                }
+            )
+        false_change_fields = []
+        if re.search(r"\b(setting|location|place|world)\b", change_claim_text) and _clean_sentence(current.setting).lower() == _clean_sentence(previous.setting).lower():
+            false_change_fields.append("setting")
+        if re.search(r"\b(camera|coverage|framing|composition|shot)\b", change_claim_text) and _clean_sentence(current.camera).lower() == _clean_sentence(previous.camera).lower():
+            false_change_fields.append("camera")
+        if re.search(r"\b(action|gesture|motion|movement)\b", change_claim_text) and _clean_sentence(current.action).lower() == _clean_sentence(previous.action).lower():
+            false_change_fields.append("action")
+        if false_change_fields:
+            issues.append(
+                {
+                    "code": "false_relationship_change_claim",
+                    "scene_num": current.scene_num,
+                    "field": "relationship_change",
+                    "message": "the declared observable change names fields that are unchanged from the previous shot",
+                    "evidence": {
+                        "matches_scene_num": previous.scene_num,
+                        "declared_change": current.relationship_change,
+                        "unchanged_fields": false_change_fields,
+                    },
+                    "editable_fields": [
+                        *false_change_fields, "relationship_preserve", "relationship_change",
+                        "relationship_rationale",
+                    ],
+                }
+            )
+        if repetition_is_declared and exact_staging_repeat and (
+            not change_claims or change_claims.issubset(weak_change_claims)
+        ):
+            issues.append(
+                {
+                    "code": "unmotivated_declared_repetition",
+                    "scene_num": current.scene_num,
+                    "message": "an exact repeated shot declares no observable development; either justify an explicit lyric loop or stage the new beat",
+                    "evidence": {
+                        "matches_scene_num": previous.scene_num,
+                        "declared_kind": current.relationship_kind,
+                        "declared_change": current.relationship_change,
+                    },
+                    "editable_fields": [
+                        "setting", "subjects", "action", "camera", "narrative_function",
+                        "relationship_kind", "relationship_preserve", "relationship_change",
+                        "relationship_rationale",
+                    ],
+                }
+            )
+        if agentic_pair and not repetition_is_declared and _clean_sentence(current.action).lower() == _clean_sentence(previous.action).lower():
             issues.append(
                 {
                     "code": "repeated_narrative_beat",
@@ -957,14 +1405,81 @@ def validate_plan_semantics(plan: ProductionPlan, *, require_reviewer_approval: 
             if _clean_sentence(getattr(current, field_name, "")).lower()
             == _clean_sentence(getattr(previous, field_name, "")).lower()
         ]
-        if len(unchanged) == 3:
+        if len(unchanged) == 3 and not repetition_is_declared:
             issues.append(
                 {
                     "code": "repeated_scene_staging",
                     "scene_num": current.scene_num,
                     "message": "consecutive scenes must materially change setting, action, or camera composition",
                     "evidence": {"matches_scene_num": previous.scene_num, "unchanged_fields": unchanged},
-                    "editable_fields": ["setting", "action", "camera"],
+                    "editable_fields": [
+                        "setting", "action", "camera", "relationship_kind", "relationship_preserve",
+                        "relationship_change", "relationship_rationale",
+                    ],
+                }
+            )
+    for index, scene in enumerate(plan.scenes[2:], start=2):
+        prior = plan.scenes[index - 2:index]
+        if all(
+            _clean_sentence(candidate.camera).lower() == _clean_sentence(scene.camera).lower()
+            for candidate in prior
+        ):
+            declared_preserve = " ".join(scene.relationship_preserve).lower()
+            if not re.search(r"\b(camera|coverage|framing|composition|shot)\b", declared_preserve):
+                issues.append(
+                    {
+                        "code": "undeclared_repeated_coverage",
+                        "scene_num": scene.scene_num,
+                        "field": "camera",
+                        "message": "camera coverage repeated across three shots without an explicit story- or lyric-motivated preservation declaration",
+                        "evidence": {
+                            "observed": scene.camera,
+                            "matches_scene_nums": [candidate.scene_num for candidate in prior],
+                            "declared_preserve": scene.relationship_preserve,
+                        },
+                        "editable_fields": [
+                            "camera", "relationship_preserve", "relationship_change", "relationship_rationale",
+                        ],
+                    }
+                )
+    for index, scene in enumerate(plan.scenes[2:], start=2):
+        if any(
+            "non-agentic" in str(value).lower()
+            for value in (scene.scene_goal, scene.description)
+        ):
+            continue
+        matching = next(
+            (
+                prior for prior in plan.scenes[:index - 1]
+                if _clean_sentence(prior.action).lower() == _clean_sentence(scene.action).lower()
+            ),
+            None,
+        )
+        if matching is None:
+            continue
+        preserve_text = " ".join(scene.relationship_preserve).lower()
+        rationale = scene.relationship_rationale.lower()
+        motivated_reprise = (
+            scene.relationship_kind == "reprise"
+            and re.search(r"\b(action|composition|gesture|framing|loop|pose|shot|staging)\b", preserve_text)
+            and re.search(r"\b(chorus|exact loop|refrain|repeated lyric|return)\b", rationale)
+        )
+        if not motivated_reprise:
+            issues.append(
+                {
+                    "code": "reused_nonadjacent_action",
+                    "scene_num": scene.scene_num,
+                    "field": "action",
+                    "message": "the scene reuses an earlier action without an explicit refrain or loop reason, so the later lyric lacks a new visible beat",
+                    "evidence": {
+                        "observed": scene.action,
+                        "expected": "a new visible development or an explicitly preserved refrain action",
+                        "source": f"action in earlier scene {matching.scene_num}",
+                    },
+                    "editable_fields": [
+                        "scene_goal", "lyric_interpretation", "action", "camera", "relationship_kind",
+                        "relationship_preserve", "relationship_change", "relationship_rationale",
+                    ],
                 }
             )
     return {
@@ -978,6 +1493,9 @@ def validate_plan_semantics(plan: ProductionPlan, *, require_reviewer_approval: 
 def _critic_prompt() -> str:
     return (
         "You are PlanCriticAgent, the semantic reviewer for a StoryMem video plan before costly GPU generation. "
+        "Perform two focused passes. StoryArcReview checks lyric interpretation, causal setup-development-payoff, "
+        "motivated continuations/reprises, and whether safety adaptations preserve the event. ShotPlanReview then checks "
+        "whether setting, staging, action, and coverage realize that beat without arbitrary variety. "
         "Review the supplied plan independently of its topic; never substitute canned nursery-rhyme scenes. Judge it "
         "as a human story editor and director for an engaging preschool animated sing-along and according to StoryMem's "
         "one-five-second-shot-per-prompt constraint. Return "
@@ -989,6 +1507,7 @@ def _critic_prompt() -> str:
         "lyric_interpretation. Use the lyric_line embedded in each scene as the source of truth. Audit every scene in "
         "order and compare lyric_line independently against scene_goal, lyric_interpretation, setting, subjects, and "
         "action; never assume the plan's interpretation is correct. Then audit the sequence as one causal visual story. "
+        "A visual action should interpret the lyric rather than copy its words; never demand literal lyric text as an action. "
         "Reject an action that depicts the opposite of a stated wish, merely paraphrases a lyric without a visible "
         "story beat, uses an abstract inner state such as reflecting or enjoying without a readable pose or expression, "
         "assigns singing to visual generation, introduces irrelevant characters or locations, lists a visible bank "
@@ -998,10 +1517,16 @@ def _critic_prompt() -> str:
         "without narrative purpose, lacks a readable expression/gaze/action, overloads the five-second beat, drifts outside the visual "
         "bible, changes a recurring character's anchors, depicts unsafe literal action, is vague or internally "
         "contradictory, overloads a five-second clip, conflicts on camera direction, or requests generated text, "
-        "dialogue, inset frames, or background music inside a visual scene. Audio planning is reviewed separately; "
+        "dialogue, inset frames, or background music inside a visual scene. A safe revision must not flatten a causal "
+        "sequence into repeated supported poses; preserve a readable setup, transformation, and payoff. Audio planning is reviewed separately; "
         "For every scene, identify the distinct observable beat and compare it with adjacent scenes. Changes only to "
         "an adverb, mood label, camera movement, or wording do not constitute narrative progression when the subject "
-        "performs the same action. Verify that the setting describes a physically stageable relationship among subjects "
+        "performs the same action. Do not reject repetition merely because fields match: same cast and location are useful "
+        "continuity, and a declared continuation or reprise may preserve action or composition when its rationale matches "
+        "the lyric. Judge whether relationship_preserve, relationship_change, and relationship_rationale honestly describe "
+        "the sequence. A reprise normally needs changed story state or closure unless the user requested an exact loop. "
+        "Reject arbitrary location or camera changes that damage geography just as strictly as unmotivated sameness. "
+        "Verify that the setting describes a physically stageable relationship among subjects "
         "and locations, that every selected character contributes to the lyric or causal story, and that abstract or "
         "closing lyrics receive a readable visual metaphor, reaction, transformation, or payoff. Allow useful expressive "
         "detail beyond a terse scene_goal; report an issue only for a material contradiction, omission, irrelevance, or "
@@ -1010,7 +1535,7 @@ def _critic_prompt() -> str:
         "scene_num (or null for plan-wide issues), affected field when known, concise evidence, and a suggested_change "
         "that preserves the user's input. Also return replacement_value: the exact complete JSON value that should "
         "replace the cited editable field, not an instruction and not a whole regenerated plan. For plan-wide issues, "
-        "target only visual_bible, selected_characters, or scenes. Evidence must be an object with observed (an exact plan fact), expected "
+        "target only arc_summary, visual_bible, selected_characters, or scenes. Evidence must be an object with observed (an exact plan fact), expected "
         "(the conflicting requirement), and source (the field, lyric, visual-bible rule, or comparison scene). Only "
         "review planner-owned fields present in review_plan; do not review derived prompts, timing, audio_description, "
         "first_frame_prompt, subtitle metadata, or guardrail wording. A prohibition such as 'no generated text' is a "
@@ -1068,11 +1593,22 @@ def _selected_character_metadata(
             if label:
                 bank_profile = bank_by_label.get(_character_lookup_key(str(label)))
                 description = item.get("description") or (bank_profile.description if bank_profile else None)
+                allowed_variant = item.get("allowed_variant") or item.get("selected_variant")
                 selected.append(
                     {
                         "label": str(label),
                         "selection_rationale": str(rationale or "selected by planner"),
                         **({"description": str(description)} if description else {}),
+                        **({"allowed_variant": str(allowed_variant)} if allowed_variant else {}),
+                        **(
+                            {
+                                "visual_anchors": list(bank_profile.visual_anchors),
+                                "continuity_constraints": list(bank_profile.continuity_constraints),
+                                "negative_constraints": list(bank_profile.negative_constraints),
+                            }
+                            if bank_profile
+                            else {}
+                        ),
                     }
                 )
     return selected
@@ -1093,11 +1629,24 @@ def _compile_scene_description(
         "style": _raw_scene_field(raw, "style", "visual_style") or visual_style,
         "safety_adaptation": _raw_scene_field(raw, "safety_adaptation", "safety"),
     }
-    character_descriptions = [
-        str(item.get("description", "")).strip()
-        for item in selected_characters
-        if isinstance(item, dict) and str(item.get("description", "")).strip()
-    ]
+    character_descriptions = []
+    for item in selected_characters:
+        if not isinstance(item, dict) or not str(item.get("description", "")).strip():
+            continue
+        parts = [str(item["description"]).strip()]
+        variant = str(item.get("allowed_variant", "")).strip()
+        if variant:
+            parts.append(f"scene variant: {variant}")
+        anchors = _list_from_decision(item.get("visual_anchors"))[:3]
+        continuity = _list_from_decision(item.get("continuity_constraints"))[:2]
+        negatives = _list_from_decision(item.get("negative_constraints"))[:2]
+        if anchors:
+            parts.append("identity anchors: " + ", ".join(anchors))
+        if continuity:
+            parts.append("preserve " + ", ".join(continuity))
+        if negatives:
+            parts.append("avoid " + ", ".join(negatives))
+        character_descriptions.append("; ".join(parts))
     missing_descriptions = [
         description for description in character_descriptions
         if description.lower() not in fields["subjects"].lower()
@@ -1187,7 +1736,7 @@ def _normalize_critic_issue(issue: Any, index: int) -> dict[str, Any]:
         "scene_num": scene_num,
         "message": message,
     }
-    for key in ("field", "evidence", "suggested_change", "replacement_value"):
+    for key in ("field", "editable_fields", "evidence", "suggested_change", "replacement_value"):
         if issue.get(key) not in (None, "", [], {}):
             normalized[key] = issue[key]
     field = normalized.get("field")
@@ -1195,8 +1744,16 @@ def _normalize_critic_issue(issue: Any, index: int) -> dict[str, Any]:
     if scene_num is None and isinstance(field, str) and isinstance(replacement, dict) and field in replacement:
         normalized["replacement_value"] = replacement[field]
     evidence = normalized.get("evidence")
-    if isinstance(field, str) and isinstance(evidence, dict) and not evidence.get("observed") and evidence.get(field):
-        normalized["evidence"] = {**evidence, "observed": evidence[field]}
+    if isinstance(field, str) and isinstance(evidence, dict):
+        observed = evidence.get("observed")
+        expected = evidence.get("expected")
+        if isinstance(observed, dict) and field in observed:
+            observed = observed[field]
+        elif observed in (None, "") and evidence.get(field) not in (None, ""):
+            observed = evidence[field]
+        if isinstance(expected, dict) and field in expected:
+            expected = expected[field]
+        normalized["evidence"] = {**evidence, "observed": observed, "expected": expected}
     return normalized
 
 
@@ -1261,6 +1818,11 @@ def _normalize_critic_scores(value: Any) -> dict[str, float]:
 def _critic_review_plan(plan: ProductionPlan) -> dict[str, Any]:
     scene_fields = (
         "scene_num",
+        "narrative_function",
+        "relationship_kind",
+        "relationship_preserve",
+        "relationship_change",
+        "relationship_rationale",
         "scene_goal",
         "lyric_interpretation",
         "setting",
@@ -1274,8 +1836,75 @@ def _critic_review_plan(plan: ProductionPlan) -> dict[str, Any]:
         "boundary_behavior",
         "cut",
     )
+    scenes = [
+        {
+            "lyric_line": plan.lyric_segments[scene.lyric_segment_index - 1].text,
+            **{field: getattr(scene, field) for field in scene_fields},
+        }
+        for scene in plan.scenes
+    ]
+    adjacent_scene_comparisons = [
+        {
+            "previous_scene_num": previous["scene_num"],
+            "scene_num": current["scene_num"],
+            "previous_lyric": previous["lyric_line"],
+            "lyric": current["lyric_line"],
+            "declared_relationship": {
+                "kind": current["relationship_kind"],
+                "preserve": current["relationship_preserve"],
+                "change": current["relationship_change"],
+                "rationale": current["relationship_rationale"],
+            },
+            "previous_staging": {
+                "setting": previous["setting"],
+                "subjects": previous["subjects"],
+                "action": previous["action"],
+                "camera": previous["camera"],
+            },
+            "current_staging": {
+                "setting": current["setting"],
+                "subjects": current["subjects"],
+                "action": current["action"],
+                "camera": current["camera"],
+            },
+        }
+        for previous, current in zip(scenes, scenes[1:])
+    ]
+    same_lyric_comparisons = []
+    for index, current in enumerate(scenes):
+        prior = next(
+            (
+                candidate for candidate in reversed(scenes[:index])
+                if _clean_sentence(candidate["lyric_line"]).lower()
+                == _clean_sentence(current["lyric_line"]).lower()
+            ),
+            None,
+        )
+        if prior is not None:
+            same_lyric_comparisons.append(
+                {
+                    "previous_scene_num": prior["scene_num"],
+                    "scene_num": current["scene_num"],
+                    "lyric": current["lyric_line"],
+                    "declared_relationship": {
+                        "kind": current["relationship_kind"],
+                        "preserve": current["relationship_preserve"],
+                        "change": current["relationship_change"],
+                        "rationale": current["relationship_rationale"],
+                    },
+                    "previous_staging": {
+                        "setting": prior["setting"], "subjects": prior["subjects"],
+                        "action": prior["action"], "camera": prior["camera"],
+                    },
+                    "current_staging": {
+                        "setting": current["setting"], "subjects": current["subjects"],
+                        "action": current["action"], "camera": current["camera"],
+                    },
+                }
+            )
     return {
         "lyrics": [segment.text for segment in plan.lyric_segments],
+        "arc_summary": plan.arc_summary,
         "visual_bible": build_visual_bible(plan),
         "available_character_options": [
             {
@@ -1289,13 +1918,9 @@ def _critic_review_plan(plan: ProductionPlan) -> dict[str, Any]:
             }
             for profile in plan.character_bank
         ],
-        "scenes": [
-            {
-                "lyric_line": plan.lyric_segments[scene.lyric_segment_index - 1].text,
-                **{field: getattr(scene, field) for field in scene_fields},
-            }
-            for scene in plan.scenes
-        ],
+        "scenes": scenes,
+        "adjacent_scene_comparisons": adjacent_scene_comparisons,
+        "same_lyric_comparisons": same_lyric_comparisons,
     }
 
 
@@ -1303,8 +1928,10 @@ def _critic_issue_is_actionable(issue: dict[str, Any], review_plan: dict[str, An
     editable_scene_fields = {
         "scene_goal", "lyric_interpretation", "setting", "subjects", "action", "camera", "style",
         "safety_adaptation", "selected_characters", "expected_mood", "boundary_behavior", "cut",
+        "narrative_function", "relationship_kind", "relationship_preserve", "relationship_change",
+        "relationship_rationale",
     }
-    plan_fields = {"visual_bible", "selected_characters"}
+    plan_fields = {"arc_summary", "visual_bible", "selected_characters"}
     field = str(issue.get("field") or "").split("[", 1)[0]
     # Hygiene is already enforced deterministically. Small semantic critics tend
     # to misuse this label for harmless wording preferences, so keep it advisory.
@@ -1373,6 +2000,20 @@ class PlanCriticAgent:
             "review_plan": review_plan,
             "deterministic_report": deterministic_report,
             "review_contract": {
+                "focused_passes": {
+                    "StoryArcReview": [
+                        "lyric interpretation",
+                        "setup-development-payoff",
+                        "motivated repetition and reprises",
+                        "safety adaptation preserves causal meaning",
+                    ],
+                    "ShotPlanReview": [
+                        "beat is visibly stageable in five seconds",
+                        "preserved continuity is intentional",
+                        "declared changes are observable rather than synonyms",
+                        "coverage supports the beat without arbitrary variety",
+                    ],
+                },
                 "independent_dimensions": [
                     "lyric_alignment",
                     "scene_progression",
@@ -1382,11 +2023,22 @@ class PlanCriticAgent:
                     "prompt_hygiene",
                 ],
                 "deterministic_issues_are_binding": True,
-                "issue_fields": ["code", "scene_num", "message", "field", "evidence", "suggested_change"],
+                "issue_fields": [
+                    "code", "scene_num", "message", "field", "editable_fields", "evidence",
+                    "suggested_change", "replacement_value",
+                ],
             },
         }
+        pass_responses: list[dict[str, Any]] = []
         try:
-            response = self.backend.generate_json(self.last_prompt, self.last_schema, self.last_context)
+            for pass_name, checks in self.last_context["review_contract"]["focused_passes"].items():
+                pass_context = {
+                    **self.last_context,
+                    "review_focus": {"name": pass_name, "checks": checks},
+                }
+                pass_responses.append(
+                    self.backend.generate_json(self.last_prompt, self.last_schema, pass_context)
+                )
         except Exception as exc:
             self.last_error = str(exc)
             return {
@@ -1395,6 +2047,33 @@ class PlanCriticAgent:
                 "scores": {},
                 "revision_notes": [],
             }
+        combined_scores: dict[str, float] = {}
+        for pass_response in pass_responses:
+            for key, value in _normalize_critic_scores(pass_response.get("scores", {})).items():
+                combined_scores[key] = min(combined_scores.get(key, value), value)
+        response = {
+            "passed": all(pass_response.get("passed") is not False for pass_response in pass_responses),
+            "issues": [
+                issue
+                for pass_response in pass_responses
+                for issue in (
+                    pass_response.get("issues", [])
+                    if isinstance(pass_response.get("issues", []), list)
+                    else [pass_response.get("issues")]
+                )
+            ],
+            "scores": combined_scores,
+            "revision_notes": [
+                note
+                for pass_response in pass_responses
+                for note in (
+                    pass_response.get("revision_notes", [])
+                    if isinstance(pass_response.get("revision_notes", []), list)
+                    else []
+                )
+            ],
+            "pass_responses": pass_responses,
+        }
         self.last_response = response
         raw_issues = response.get("issues", [])
         protocol_issues: list[dict[str, Any]] = []
@@ -1412,6 +2091,14 @@ class PlanCriticAgent:
                 if field in replacements:
                     issue["replacement_value"] = replacements[field]
         issues = [issue for issue in normalized_issues if _critic_issue_is_actionable(issue, review_plan)]
+        deduplicated_issues: list[dict[str, Any]] = []
+        seen_issues: set[str] = set()
+        for issue in issues:
+            fingerprint = json.dumps(issue, sort_keys=True, default=str)
+            if fingerprint not in seen_issues:
+                deduplicated_issues.append(issue)
+                seen_issues.add(fingerprint)
+        issues = deduplicated_issues
         warnings = [
             {**issue, "warning": "critic claim was not grounded in editable planner fields with comparative evidence"}
             for issue in normalized_issues
@@ -1467,17 +2154,18 @@ class PlanCriticAgent:
             for issue in issues
             if isinstance(issue, dict)
             and issue.get("scene_num") is None
-            and issue.get("field") in {"visual_bible", "selected_characters"}
+            and issue.get("field") in {"arc_summary", "visual_bible", "selected_characters"}
             and "replacement_value" in issue
         }
         return {
             "passed": not issues,
             "issues": issues,
             "scores": _normalize_critic_scores(response.get("scores", {})),
-            "revision_notes": [
+            "revision_notes": list(dict.fromkeys(
                 _clean_sentence(str(note)) for note in response.get("revision_notes", []) if str(note).strip()
-            ] if isinstance(response.get("revision_notes", []), list) else [],
+            )) if isinstance(response.get("revision_notes", []), list) else [],
             "warnings": warnings,
+            "review_passes": ["StoryArcReview", "ShotPlanReview"],
             "targeted_revision": {"scene_revisions": scene_revisions, "plan_updates": plan_updates},
         }
 
@@ -1509,6 +2197,7 @@ def production_plan_from_planner_decision(
     for index, segment in enumerate(segments, start=1):
         raw = raw_scenes[index - 1] if index - 1 < len(raw_scenes) and isinstance(raw_scenes[index - 1], dict) else {}
         selected_characters = _selected_character_metadata(raw, bank)
+        relationship = _scene_relationship(raw, index)
         description, structured = _compile_scene_description(raw, rhyme.visual_style, selected_characters)
         camera = structured["camera"]
         expected_mood = str(raw.get("expected_mood") or "calm child-safe bedtime wonder")
@@ -1550,6 +2239,11 @@ def production_plan_from_planner_decision(
                 style=structured["style"],
                 safety_adaptation=structured["safety_adaptation"],
                 selected_characters=selected_characters,
+                narrative_function=str(raw.get("narrative_function") or "unspecified"),
+                relationship_kind=relationship["kind"],
+                relationship_preserve=relationship["preserve"],
+                relationship_change=relationship["change"],
+                relationship_rationale=relationship["rationale"],
                 review_status=str(raw.get("review_status") or "pending"),
             )
         )
@@ -1558,7 +2252,7 @@ def production_plan_from_planner_decision(
         "music box, celesta, glockenspiel shimmer, soft strings, gentle fade-out"
     )
     plan = ProductionPlan(
-        version="1.0",
+        version="1.1",
         rhyme=rhyme,
         clip_count=clip_count,
         target_fps=target_fps,
@@ -1568,6 +2262,7 @@ def production_plan_from_planner_decision(
         audio_mode="full_song",
         music_prompt=music_prompt,
         evaluation_rubric={**DEFAULT_RUBRIC, "visual_bible": decision.get("visual_bible", {}) if isinstance(decision.get("visual_bible"), dict) else {}},
+        arc_summary=str(decision.get("arc_summary") or "").strip(),
     )
     plan.validate()
     return plan
@@ -1589,8 +2284,30 @@ def _apply_planner_revision(previous: dict[str, Any], response: dict[str, Any]) 
     editable = {
         "scene_goal", "lyric_interpretation", "setting", "subjects", "action", "camera", "style",
         "safety_adaptation", "selected_characters", "expected_mood", "boundary_behavior", "cut",
+        "narrative_function", "relationship_kind", "relationship_preserve", "relationship_change",
+        "relationship_rationale",
     }
     changed = False
+    relationship_keys = {
+        "relationship_kind": "kind",
+        "relationship_preserve": "preserve",
+        "relationship_change": "change",
+        "relationship_rationale": "rationale",
+    }
+
+    def current_value(target: dict[str, Any], field: str) -> Any:
+        if field in relationship_keys and isinstance(target.get("relationship_to_previous"), dict):
+            return target["relationship_to_previous"].get(relationship_keys[field])
+        return target.get(field)
+
+    def assign_value(target: dict[str, Any], field: str, value: Any) -> None:
+        if field in relationship_keys:
+            relationship = target.setdefault("relationship_to_previous", {})
+            if isinstance(relationship, dict):
+                relationship[relationship_keys[field]] = value
+                return
+        target[field] = value
+
     for revision in revisions:
         if not isinstance(revision, dict):
             continue
@@ -1604,16 +2321,16 @@ def _apply_planner_revision(previous: dict[str, Any], response: dict[str, Any]) 
         field_to_change = revision.get("field_to_change")
         if field_to_change in editable and "replacement_value" in revision:
             replacement = revision["replacement_value"]
-            if replacement != target.get(field_to_change):
-                target[field_to_change] = replacement
+            if replacement != current_value(target, field_to_change):
+                assign_value(target, field_to_change, replacement)
                 changed = True
         for field in editable:
-            if field in revision and revision[field] != target.get(field):
-                target[field] = revision[field]
+            if field in revision and revision[field] != current_value(target, field):
+                assign_value(target, field, revision[field])
                 changed = True
     plan_updates = response.get("plan_updates", {})
     if isinstance(plan_updates, dict):
-        for field in ("visual_bible", "selected_characters", "music_prompt"):
+        for field in ("arc_summary", "visual_bible", "selected_characters", "music_prompt"):
             if field in plan_updates and plan_updates[field] != revised.get(field):
                 revised[field] = plan_updates[field]
                 changed = True
@@ -1647,26 +2364,35 @@ def _constrain_revision_to_issues(
         for index, scene in enumerate((previous or {}).get("scenes", []), start=1)
         if isinstance(scene, dict)
     }
+    relationship_keys = {
+        "relationship_kind": "kind",
+        "relationship_preserve": "preserve",
+        "relationship_change": "change",
+        "relationship_rationale": "rationale",
+    }
 
-    def valid_revision(revision: Any) -> bool:
+    def normalize_revision(revision: Any) -> dict[str, Any] | None:
         if not isinstance(revision, dict):
-            return False
+            return None
         pair = (revision.get("scene_num"), str(revision.get("field_to_change")))
         replacement = revision.get("replacement_value")
         if pair not in allowed or replacement in (None, "", [], {}):
-            return False
-        original = previous_scenes.get(revision.get("scene_num"), {}).get(revision.get("field_to_change"))
+            return None
+        previous_scene = previous_scenes.get(revision.get("scene_num"), {})
+        field = revision.get("field_to_change")
+        original = previous_scene.get(field)
+        if original is None and field in relationship_keys and isinstance(previous_scene.get("relationship_to_previous"), dict):
+            original = previous_scene["relationship_to_previous"].get(relationship_keys[field])
         if original is None:
-            return previous is None
+            return revision if previous is None else None
+        if field in {"relationship_preserve", "relationship_change"} and isinstance(original, list) and isinstance(replacement, str):
+            replacement = [replacement]
+            revision = {**revision, "replacement_value": replacement}
         if isinstance(original, bool):
-            return isinstance(replacement, bool)
-        return isinstance(replacement, type(original))
+            return revision if isinstance(replacement, bool) else None
+        return revision if isinstance(replacement, type(original)) else None
 
-    filtered = [
-        revision
-        for revision in revisions
-        if valid_revision(revision)
-    ]
+    filtered = [normalized for revision in revisions if (normalized := normalize_revision(revision)) is not None]
     filtered_plan_updates = {}
     for field, replacement in response.get("plan_updates", {}).items() if isinstance(response.get("plan_updates"), dict) else []:
         original = (previous or {}).get(field)
@@ -1812,7 +2538,21 @@ class PromptPlannerAgent:
             return plan
         self.last_prompt = _planner_prompt()
         self.last_schema = PLANNER_DECISION_SCHEMA
-        self.last_context = {"response_key": "planner", "input": _planner_input_context(rhyme)}
+        self.last_context = {
+            "response_key": "planner",
+            "input": _planner_input_context(rhyme),
+            "planning_stages": [
+                {
+                    "name": "NarrativeBeatPlanning",
+                    "output": ["arc_summary", "scene_goal", "lyric_interpretation", "narrative_function", "relationship_to_previous"],
+                },
+                {
+                    "name": "ShotPlanning",
+                    "depends_on": "NarrativeBeatPlanning",
+                    "output": ["setting", "subjects", "action", "camera", "style", "safety_adaptation", "selected_characters"],
+                },
+            ],
+        }
         try:
             response = self.backend.generate_json(
                 self.last_prompt,
