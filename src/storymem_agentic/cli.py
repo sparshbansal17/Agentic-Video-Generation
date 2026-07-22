@@ -6,6 +6,7 @@ from pathlib import Path
 
 from .orchestrator import run_workflow
 from .runner import run_agentic, run_audio_postprocess, write_audio_artifacts
+from .subtitles import add_whisperx_subtitles
 
 
 def plan_audio(args: argparse.Namespace) -> int:
@@ -66,6 +67,19 @@ def postprocess_audio(args: argparse.Namespace) -> int:
     return 0
 
 
+def postprocess_subtitles(args: argparse.Namespace) -> int:
+    result = add_whisperx_subtitles(
+        video_file=args.video_file,
+        whisperx_json=args.whisperx_json,
+        subtitle_file=args.subtitle_file,
+        output_file=args.output_file,
+        ffmpeg_bin=args.ffmpeg_bin,
+        result_file=args.result_file,
+    )
+    print(result["video_output"])
+    return 0
+
+
 def workflow(args: argparse.Namespace) -> int:
     if (
         args.workflow_mode == "iterate"
@@ -117,6 +131,7 @@ def workflow(args: argparse.Namespace) -> int:
         audio_review_command=args.audio_review_command,
         whisperx_command=args.whisperx_command,
         audio_aligner=args.audio_aligner,
+        add_transcribed_subtitles=args.transcribed_subtitles,
         strict_lullaby_review=args.strict_lullaby_review,
         generate_audio=args.generate_audio,
         media_audio_mode=args.media_audio_mode,
@@ -184,6 +199,17 @@ def build_parser() -> argparse.ArgumentParser:
     post.add_argument("--seed", type=int, default=0)
     post.add_argument("--dry-run", action=argparse.BooleanOptionalAction, default=False)
     post.set_defaults(func=postprocess_audio)
+    subtitle = sub.add_parser(
+        "postprocess-subtitles",
+        help="Create and burn subtitles from WhisperX-observed speech for an existing video",
+    )
+    subtitle.add_argument("--video-file", required=True)
+    subtitle.add_argument("--whisperx-json", required=True)
+    subtitle.add_argument("--subtitle-file", required=True)
+    subtitle.add_argument("--output-file")
+    subtitle.add_argument("--result-file")
+    subtitle.add_argument("--ffmpeg-bin")
+    subtitle.set_defaults(func=postprocess_subtitles)
     for name, help_text, mode in [
         ("plan", "Create production/audio planning artifacts without GPU generation", "dry_run"),
         ("dry-run", "Create production/audio/evaluation/revision artifacts without GPU generation", "dry_run"),
@@ -217,6 +243,12 @@ def build_parser() -> argparse.ArgumentParser:
         command.add_argument("--audio-review-command", help="Audio/video-capable reviewer command, e.g. Qwen2.5-Omni")
         command.add_argument("--whisperx-command")
         command.add_argument("--audio-aligner", choices=["whisperx", "none"], default="whisperx")
+        command.add_argument(
+            "--transcribed-subtitles",
+            action=argparse.BooleanOptionalAction,
+            default=True,
+            help="Burn subtitles from final WhisperX-observed speech after audio selection",
+        )
         command.add_argument("--strict-lullaby-review", action=argparse.BooleanOptionalAction, default=True)
         command.add_argument("--generate-audio", action=argparse.BooleanOptionalAction, default=True)
         command.add_argument("--media-audio-mode", choices=["full_song", "separate_stems", "scene_lyrics_mix", "hybrid_voice_bed"], default="full_song")

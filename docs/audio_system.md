@@ -28,6 +28,20 @@ Generated attempts are recorded as `AudioCandidate` entries in `audio_candidate_
 
 For local qualitative review, use `scripts/local_omni_audio_reviewer.py` with Qwen2.5-Omni. Keep it in a separate environment from Qwen2-VL because its Transformers and media dependencies differ.
 
+## Spoken-Content Subtitles
+
+After the final audio candidate is selected, the workflow converts the final WhisperX timed words into readable ASS cues and burns them into `generated_subtitled_with_music.mp4`. These subtitles are derived only from speech WhisperX observed in the rendered media; planner lyrics and per-scene `subtitle_text` are not used. The provenance and exact cue text are recorded in `subtitle_postprocess_result.json`.
+
+The stage is enabled by default when `--audio-aligner whisperx` is active. Disable it with `--no-transcribed-subtitles`. Existing videos with an alignment can be processed without regenerating media:
+
+```bash
+storymem-agentic postprocess-subtitles \
+  --video-file path/to/generated_with_music.mp4 \
+  --whisperx-json path/to/whisperx_alignment.json \
+  --subtitle-file path/to/subtitles.ass \
+  --result-file path/to/subtitle_postprocess_result.json
+```
+
 ## Acceptance Defaults
 
 - At least 98% lyric coverage, with no missing content or repeated words.

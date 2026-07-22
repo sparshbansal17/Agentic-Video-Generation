@@ -20,6 +20,7 @@ from .runner import run_audio_postprocess
 from .schemas import AudioCandidate, EvaluationReport, NurseryRhymeInput, ProductionPlan, RevisionPlan, SceneHint, SongSpec
 from .song_pipeline import candidate_manifest
 from .story_writer import rhyme_text_from_plan, story_from_plan, storymem_script_from_plan
+from .subtitles import add_whisperx_subtitles
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -529,6 +530,7 @@ def run_workflow(
     audio_review_command: str | None = None,
     whisperx_command: str | None = None,
     audio_aligner: str = "whisperx",
+    add_transcribed_subtitles: bool = True,
     strict_lullaby_review: bool = True,
     generate_audio: bool = True,
     media_audio_mode: str = "full_song",
@@ -1097,6 +1099,27 @@ def run_workflow(
                     "scene_retry_candidate_limit": scene_candidate_count,
                 }
                 write_json(latest_paths["iteration_dir"] / "audio_postprocess_result.json", audio_result)
+        subtitle_result: dict[str, Any] | None = None
+        if (
+            mode in {"generate", "iterate"}
+            and generate_audio
+            and add_transcribed_subtitles
+            and audio_aligner == "whisperx"
+            and final_candidate.exists()
+            and whisperx_alignment_path.exists()
+        ):
+            subtitle_result = add_whisperx_subtitles(
+                video_file=final_candidate,
+                whisperx_json=whisperx_alignment_path,
+                subtitle_file=latest_paths["generated_dir"] / "subtitles.ass",
+                output_file=latest_paths["generated_dir"] / "generated_subtitled_with_music.mp4",
+                ffmpeg_bin=ffmpeg_bin,
+                result_file=latest_paths["iteration_dir"] / "subtitle_postprocess_result.json",
+            )
+            final_candidate = Path(str(subtitle_result["video_output"]))
+            if audio_result is not None:
+                audio_result["subtitle_postprocess"] = subtitle_result
+                write_json(latest_paths["iteration_dir"] / "audio_postprocess_result.json", audio_result)
         latest_final_candidate = final_candidate
 
         latest_report = evaluate_iteration(
@@ -1122,6 +1145,7 @@ def run_workflow(
                 "aligner": audio_aligner,
                 "whisperx_command": whisperx_command,
                 "audio_postprocess": audio_result,
+                "subtitle_postprocess": subtitle_result,
                 "evaluated_video": str(final_candidate),
             },
         )
@@ -1179,6 +1203,7 @@ def run_workflow(
         "planner_command": planner_command,
         "review_backend": review_backend,
         "audio_aligner": audio_aligner,
+        "transcribed_subtitles": add_transcribed_subtitles,
         "media_audio_mode": current_media_audio_mode,
     }
     write_json(root / "run_manifest.json", summary)
