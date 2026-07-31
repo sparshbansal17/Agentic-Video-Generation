@@ -23,7 +23,10 @@
       "expected_scenes": 4,
       "required_entities": ["friendly five-point star", "sleeping village"],
       "stressors": ["repeated_words", "character_consistency", "night_palette"],
-      "locked_audio_id": "audio-pack-v1/twinkle"
+      "locked_audio_id": "audio-pack-v1/twinkle",
+      "locked_audio_sha256": "36013e14ffebe6764d0025a62a8bac7498626843bcb4edf59658237aa9c6362e",
+      "locked_audio_recipe": "ACE-Step six-line source with verified first-four-line WER 0.0, slowed with FFmpeg atempo=0.854166667 and trimmed before the fifth-line reprise to 24.000 seconds, PCM s16le stereo 48 kHz",
+      "locked_audio_wer": 0.0
     },
     {
       "case_id": "conditioned_hickory_clock",

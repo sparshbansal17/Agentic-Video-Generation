@@ -13,7 +13,13 @@ The comparison has two tracks because the systems do not accept equivalent input
    MAVIN and MovieAgent use the documented adapters in `storymem_agentic.benchmark.adapters`.
 2. `end_to_end_prompt_to_song_video`: one request must produce the song and video. This is the
    project’s target setting. Report which baselines need an external audio generator and include
-   that generator’s time and cost; do not label those cascades as native baseline results.
+   that generator's time and cost; do not label those cascades as native baseline results.
+
+There is also a renderer-controlled diagnostic called the **shared-generator agent-design track**.
+It runs the published AutoMV or MovieAgent planning contract and then renders the normalized plan
+with the same StoryMem/Wan/ACE-Step backend. This isolates differences in hierarchical agent
+design, but it is not a native end-to-end score for either publication. Always label it separately
+from native-backend results.
 
 ## Locked protocol
 
@@ -30,6 +36,11 @@ The comparison has two tracks because the systems do not accept equivalent input
 The binary audio pack is intentionally versioned separately from this source repository. Its IDs
 are locked in `manifest.json`. A benchmark release must publish checksums for those masters before
 claiming conditioned-track results.
+
+For `conditioned_twinkle`, the manifest now locks the exact 24-second PCM master checksum and its
+deterministic construction recipe. Store it at
+`results_baselines/assets/conditioned_twinkle/locked_audio.wav`; `results_baselines/` is ignored so
+external repositories, model artifacts, and generated media cannot enter source commits.
 
 ## Metric families
 
@@ -80,7 +91,43 @@ python -m storymem_agentic.benchmark coverage \
 python -m storymem_agentic.benchmark history \
   --results-root results \
   --output-dir benchmark_results/agentic_av_v1
+
+python -m storymem_agentic.benchmark score-plan \
+  --manifest benchmarks/agentic_av_v1/manifest.json \
+  --case-id conditioned_twinkle \
+  --plan results_baselines/plans/automv/conditioned_twinkle/seed_000/storymem_story.json \
+  --provenance results_baselines/plans/automv/conditioned_twinkle/seed_000/provenance.json \
+  --output results_baselines/plans/automv/conditioned_twinkle/seed_000/planning_metrics.json
+
+python -m storymem_agentic.benchmark compare \
+  --manifest benchmarks/agentic_av_v1/manifest.json \
+  --submissions-root results_baselines/submissions \
+  --plans-root results_baselines/plans \
+  --output-dir results_baselines/reports/conditioned_twinkle_seed_000
+
+python -m storymem_agentic.benchmark score-media \
+  --manifest benchmarks/agentic_av_v1/manifest.json \
+  --case-id conditioned_twinkle \
+  --video path/to/raw-pre-subtitle-video.mp4 \
+  --output path/to/submission/media_metrics.json \
+  --clip-cache /home/bansa125/.cache/clip
 ```
+
+Cluster smoke and common-renderer runs use:
+
+```bash
+sbatch --export=ALL,SYSTEM=automv slurm/published_baseline_planning_smoke.slurm
+sbatch --export=ALL,SYSTEM=movieagent slurm/published_baseline_planning_smoke.slurm
+sbatch --export=ALL,SYSTEM=automv slurm/published_baseline_storymem_generate.slurm
+sbatch --export=ALL,SYSTEM=movieagent slurm/published_baseline_storymem_generate.slurm
+```
+
+The planning adapter records the SHA-256 digest of the external repository source file whose agent
+contract it executes. AutoMV uses its screenwriter/director storyboard contract. MovieAgent loads
+the upstream `screenwriterCoT-sys`, `ScenePlanningCoT-sys`, and `ShotPlotCreateCoT-sys` prompts
+directly. No external repository files are copied into this repository or committed.
+Exact upstream URLs/commits, install results, and native API blockers are recorded in
+`baseline_lock.json`.
 
 The history command is intentionally conservative: it excludes evaluation JSON files whose
 iteration directory has no non-empty MP4. Its prompt-adherence and reviewer values are internal

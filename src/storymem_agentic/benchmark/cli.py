@@ -6,7 +6,10 @@ from pathlib import Path
 from typing import Sequence
 
 from .adapters import submission_coverage
+from .compare import write_comparison
 from .history import evaluate_history
+from .media import write_clip_media_score
+from .planning import write_planning_score
 from .report import write_report
 from .schema import validate_manifest, validate_submission
 
@@ -32,6 +35,28 @@ def build_parser() -> argparse.ArgumentParser:
     coverage.add_argument("--manifest", required=True)
     coverage.add_argument("--submissions-root", default="benchmark_submissions")
     coverage.add_argument("--output")
+
+    planning = subparsers.add_parser("score-plan", help="score a normalized agent plan")
+    planning.add_argument("--manifest", required=True)
+    planning.add_argument("--case-id", required=True)
+    planning.add_argument("--plan", required=True)
+    planning.add_argument("--provenance")
+    planning.add_argument("--output", required=True)
+
+    compare = subparsers.add_parser("compare", help="compare media-backed benchmark submissions")
+    compare.add_argument("--manifest", required=True)
+    compare.add_argument("--submissions-root", required=True)
+    compare.add_argument("--plans-root", required=True)
+    compare.add_argument("--output-dir", required=True)
+    compare.add_argument("--seed", type=int, default=0)
+
+    media = subparsers.add_parser("score-media", help="score raw pre-subtitle video with CLIP")
+    media.add_argument("--manifest", required=True)
+    media.add_argument("--case-id", required=True)
+    media.add_argument("--video", required=True)
+    media.add_argument("--output", required=True)
+    media.add_argument("--device", default="cpu")
+    media.add_argument("--clip-cache")
     return parser
 
 
@@ -60,6 +85,38 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(destination)
         else:
             print(rendered, end="")
+        return 0
+    if args.command == "score-plan":
+        result = write_planning_score(
+            manifest_path=args.manifest,
+            case_id=args.case_id,
+            plan_path=args.plan,
+            provenance_path=args.provenance,
+            output_path=args.output,
+        )
+        print(json.dumps(result, indent=2))
+        return 0
+    if args.command == "compare":
+        json_path, markdown_path = write_comparison(
+            manifest_path=args.manifest,
+            submissions_root=args.submissions_root,
+            plans_root=args.plans_root,
+            output_dir=args.output_dir,
+            seed=args.seed,
+        )
+        print(json_path)
+        print(markdown_path)
+        return 0
+    if args.command == "score-media":
+        result = write_clip_media_score(
+            manifest_path=args.manifest,
+            case_id=args.case_id,
+            video_path=args.video,
+            output_path=args.output,
+            device=args.device,
+            clip_cache=args.clip_cache,
+        )
+        print(json.dumps(result, indent=2))
         return 0
     report = evaluate_history(args.results_root)
     json_path, markdown_path = write_report(report, args.output_dir)

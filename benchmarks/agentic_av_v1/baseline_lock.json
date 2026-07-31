@@ -1,0 +1,35 @@
+{
+  "captured_at": "2026-07-30",
+  "policy": "External repositories, virtual environments, checkpoints, and generated media live under ignored results_baselines/ and are never committed.",
+  "common_planner_model": "Qwen/Qwen2-VL-7B-Instruct",
+  "common_renderer": "StoryMem Wan2.2 T2V/MI2V with StoryMem LoRA",
+  "baselines": {
+    "automv": {
+      "repository": "https://github.com/multimodal-art-projection/AutoMV",
+      "commit": "d4595ec3d841620edc7f24d81d69678e939a3e13",
+      "ignored_install_path": "results_baselines/repos/AutoMV",
+      "environment": "repository-local Python 3.11 virtual environment",
+      "installation_result": "requirements installed; upstream pytest collection reaches vendored fairseq but reports 79 collection errors",
+      "native_blockers": [
+        "GEMINI_API_KEY is required by Config.validate() at import time",
+        "DOUBAO_API_KEY and proprietary Doubao image generation are required",
+        "picture.py eagerly loads Qwen2.5-Omni",
+        "google.genai and ImageBind evaluator dependencies are undeclared",
+        "SongFormer pins NumPy 1.25 while opencv-python-headless requires NumPy >=2"
+      ],
+      "executed_track": "published storyboard/character-design contract with local Qwen and the common StoryMem renderer"
+    },
+    "movieagent": {
+      "repository": "https://github.com/showlab/MovieAgent",
+      "commit": "d84041bed8bc8be460664528d9e9924cdde384ba",
+      "ignored_install_path": "results_baselines/repos/MovieAgent",
+      "environment": "repository-local Python 3.8 virtual environment",
+      "installation_result": "requirements installed; compilation and CLI help pass; the sole upstream pytest function errors because root_path/args fixtures are absent",
+      "native_blockers": [
+        "OPENAI_API_KEY or DASHSCOPE_API_KEY is required by the published agent backend",
+        "full ScriptBreakAgent construction eagerly initializes heavyweight model tools"
+      ],
+      "executed_track": "upstream screenwriterCoT-sys, ScenePlanningCoT-sys, and ShotPlotCreateCoT-sys prompts with local Qwen and the common StoryMem renderer"
+    }
+  }
+}

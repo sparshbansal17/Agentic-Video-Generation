@@ -393,6 +393,7 @@ def generate_with_transformers(
     user_prompt: str,
     max_new_tokens: int,
     *,
+    system_prompt: str = "You produce strict JSON for video-production planning. No markdown, no commentary.",
     sample: bool = False,
     forbidden_words: list[str] | None = None,
     sample_seed: int | None = None,
@@ -403,7 +404,7 @@ def generate_with_transformers(
     messages = [
         {
             "role": "system",
-            "content": "You produce strict JSON for video-production planning. No markdown, no commentary.",
+            "content": system_prompt,
         },
         {"role": "user", "content": user_prompt},
     ]
