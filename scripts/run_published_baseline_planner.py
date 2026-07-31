@@ -312,6 +312,20 @@ Exact lyrics:
             shots_path.write_text(
                 json.dumps(shots, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
             )
+    shots, schema_adapted = canonicalize_movieagent_scene_shots(shots, case)
+    if schema_adapted:
+        if checkpoint_dir:
+            raw_path = checkpoint_dir / "movieagent_shots_raw.json"
+            if not raw_path.exists() and shots_path:
+                raw_path.write_text(shots_path.read_text(encoding="utf-8"), encoding="utf-8")
+        trace.append(
+            {
+                "agent": "MovieAgentSchemaAdapter",
+                "elapsed_seconds": 0.0,
+                "raw": "Deterministically mapped Scene Description, Plot, Emotional Tone, "
+                "Cinematography Notes, and Lyrics into the published Shot keys.",
+            }
+        )
     shots, trace = revise_movieagent_shots(
         shots=shots,
         scenes=scenes,
@@ -343,6 +357,46 @@ def movieagent_shot_issues(shots: Any, case: dict[str, Any]) -> list[str]:
         if not str(item.get("Camera Movement", "")).strip():
             issues.append(f"shot {index} has no Camera Movement")
     return issues
+
+
+def canonicalize_movieagent_scene_shots(
+    shots: Any, case: dict[str, Any]
+) -> tuple[Any, bool]:
+    """Convert a four-entry MovieAgent Scene response into its Shot field contract.
+
+    Qwen sometimes preserves the upstream ScenePlanning keys at the shot boundary. This adapter
+    only renames/splits fields already present in that response; it does not author visual content.
+    """
+    if not isinstance(shots, dict) or "Shot" in shots or "shots" in shots:
+        return shots, False
+    items = object_values(shots.get("Scene"), ())
+    if len(items) != int(case["expected_scenes"]):
+        return shots, False
+    canonical: dict[str, Any] = {}
+    for index, item in enumerate(items, 1):
+        notes = str(item.get("Cinematography Notes", "")).strip()
+        parts = [part.strip() for part in notes.split(",", 1)]
+        shot_type = parts[0] if parts and parts[0] else "static medium shot"
+        movement = parts[1] if len(parts) > 1 and parts[1] else "static camera"
+        visual = " ".join(
+            str(item.get(field, "")).strip()
+            for field in ("Scene Description", "Plot", "Visual Style")
+            if str(item.get(field, "")).strip()
+        )
+        canonical[f"Shot {index}"] = {
+            "Involving Characters": item.get("Involving Characters", []),
+            "Plot/Visual Description": visual,
+            "Coarse Plot": str(item.get("Plot", "")).strip(),
+            "Emotional Enhancement": str(item.get("Emotional Tone", "")).strip(),
+            "Shot Type": shot_type,
+            "Camera Movement": movement,
+            "Subtitles": {"Narration": case["lyrics"][index - 1]},
+        }
+    result = {
+        "Internal Chain-of-Thought": shots.get("Internal Chain-of-Thought", {}),
+        "Shot": canonical,
+    }
+    return result, True
 
 
 def revise_movieagent_shots(
@@ -431,20 +485,30 @@ def normalize_story(system: str, case: dict[str, Any], native: dict[str, Any]) -
     else:
         shot_root = native.get("shots", {})
         items = object_values(shot_root, ("Shot", "shots"))
-        prompts = [
-            " ".join(
-                str(value).strip()
-                for value in (
-                    item.get("Plot/Visual Description"),
-                    item.get("Coarse Plot"),
-                    item.get("Emotional Enhancement"),
-                    item.get("Shot Type"),
-                    item.get("Camera Movement"),
+        prompts = []
+        for item in items:
+            characters = item.get("Involving Characters", [])
+            if isinstance(characters, dict):
+                character_names = list(characters)
+            elif isinstance(characters, list):
+                character_names = [str(value) for value in characters]
+            else:
+                character_names = [str(characters)] if str(characters or "").strip() else []
+            continuity = ", ".join(name.strip() for name in character_names if name.strip())
+            prompts.append(
+                " ".join(
+                    str(value).strip()
+                    for value in (
+                        f"Continuity anchors: {continuity}." if continuity else "",
+                        item.get("Plot/Visual Description"),
+                        item.get("Coarse Plot"),
+                        item.get("Emotional Enhancement"),
+                        item.get("Shot Type"),
+                        item.get("Camera Movement"),
+                    )
+                    if str(value or "").strip()
                 )
-                if str(value or "").strip()
             )
-            for item in items
-        ]
     expected = int(case["expected_scenes"])
     if len(prompts) < expected:
         raise ValueError(f"{system} produced {len(prompts)} usable shots; expected {expected}")

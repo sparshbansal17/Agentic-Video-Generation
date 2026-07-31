@@ -41,6 +41,8 @@ export HF_HOME="${ROOT}/.hf-cache"
 export TRANSFORMERS_CACHE="${ROOT}/.hf-cache/transformers"
 export TORCH_HOME="${ROOT}/.torch-cache"
 export PYTORCH_CUDA_ALLOC_CONF="expandable_segments:True"
+export STORYMEM_PIPELINE_PATH="${STORYMEM_DIR}/pipeline.py"
+export STORYMEM_DIST_TIMEOUT_SECONDS="${STORYMEM_DIST_TIMEOUT_SECONDS:-7200}"
 export TMPDIR="${ROOT}/.tmp"
 export MPLCONFIGDIR="${ROOT}/.tmp/matplotlib"
 mkdir -p "${ROOT}/logs" "${OUTPUT_PATH}" "${SUBMISSION_DIR}" "${TMPDIR}" "${MPLCONFIGDIR}"
@@ -99,8 +101,10 @@ COMMON_ARGS=(
   --t5_cpu
 )
 
-torchrun "${DISTRIBUTED_ARGS[@]}" pipeline.py "${COMMON_ARGS[@]}" --t2v_first_shot
-torchrun "${DISTRIBUTED_ARGS[@]}" pipeline.py "${COMMON_ARGS[@]}" --mi2v
+torchrun "${DISTRIBUTED_ARGS[@]}" "${ROOT}/scripts/storymem_pipeline_with_timeout.py" \
+  "${COMMON_ARGS[@]}" --t2v_first_shot
+torchrun "${DISTRIBUTED_ARGS[@]}" "${ROOT}/scripts/storymem_pipeline_with_timeout.py" \
+  "${COMMON_ARGS[@]}" --mi2v
 
 RAW_VIDEO="${OUTPUT_PATH}/$(basename "${OUTPUT_PATH}").mp4"
 END_SECONDS="$(date +%s)"
