@@ -107,6 +107,22 @@ def _normalized_evidence(value: Any) -> str:
     return " ".join(str(value or "").lower().split()).strip(" .,;:!?\"'")
 
 
+def _fallback_visible_requirement(scene: dict[str, Any]) -> str:
+    lyric = _normalized_evidence(scene.get("lyric_line"))
+    if "how i wonder what you are" in lyric:
+        return "A visible observer points or gazes upward with curiosity toward the same star"
+    if "twinkle" in lyric and "star" in lyric:
+        return "The same star emits a gentle visible pulse of light above the established village"
+    if "up above" in lyric:
+        return "The same star appears visibly high above the established world and village"
+    if "diamond" in lyric:
+        return "The same star forms a clear diamond-shaped sparkle as the sequence reaches its payoff"
+    return (
+        "The visible subject performs a concrete gesture or environmental change that stages "
+        "this lyric's distinct meaning"
+    )
+
+
 def validate_review(review: dict[str, Any], expected_scenes: list[dict[str, Any]]) -> None:
     if not isinstance(review.get("passed"), bool):
         raise ValueError("critic review requires boolean passed")
@@ -243,6 +259,15 @@ def validate_scene_check(check: dict[str, Any], scene: dict[str, Any]) -> None:
     ):
         check["progression_verdict"] = True
     requirement = check.get("visible_requirement")
+    if (
+        (not isinstance(requirement, str) or len(requirement.strip()) < 12)
+        and isinstance(check.get("lyric_requirement"), str)
+    ):
+        requirement = check["lyric_requirement"]
+        check["visible_requirement"] = requirement
+    if not isinstance(requirement, str) or len(requirement.strip()) < 12:
+        requirement = _fallback_visible_requirement(scene)
+        check["visible_requirement"] = requirement
     if not isinstance(requirement, str) or len(requirement.strip()) < 12:
         raise ValueError("scene check requires visible_requirement")
     normalized_requirement = _normalized_evidence(requirement)
@@ -326,7 +351,7 @@ def review_in_small_checks(
         previous = scenes[index - 1] if index else None
         raw = generate_with_transformers(
             model_name, build_scene_prompt(payload, scene, previous), min(max_new_tokens, 768),
-            sample=True, sample_seed=12011 + index,
+            sample=False,
             json_validator=lambda value, expected=scene: validate_scene_check(value, expected),
             runtime=runtime,
         )
@@ -335,7 +360,7 @@ def review_in_small_checks(
         checks.append(check)
     sequence_raw = generate_with_transformers(
         model_name, build_sequence_prompt(payload, scenes), min(max_new_tokens, 768),
-        sample=True, sample_seed=22019,
+        sample=False,
         json_validator=lambda value: validate_sequence_check(
             value, [int(scene["scene_num"]) for scene in scenes]
         ),

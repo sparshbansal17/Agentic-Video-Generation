@@ -2,11 +2,13 @@
 #SBATCH --job-name=agentic-benchmark-plan
 #SBATCH --output=logs/agentic_benchmark_plan_%j.out
 #SBATCH --error=logs/agentic_benchmark_plan_%j.err
-#SBATCH --partition=highmem
-#SBATCH --qos=normal
+#SBATCH --partition=ai
+#SBATCH --qos=preemptible
 #SBATCH --account=aarc
-#SBATCH --cpus-per-task=96
-#SBATCH --time=03:00:00
+#SBATCH --gres=gpu:1
+#SBATCH --cpus-per-task=14
+#SBATCH --time=00:30:00
+#SBATCH --time-min=00:10:00
 
 set -euo pipefail
 umask 002

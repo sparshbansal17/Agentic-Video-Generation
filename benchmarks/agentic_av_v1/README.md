@@ -116,7 +116,7 @@ python -m storymem_agentic.benchmark score-media \
 Cluster smoke and common-renderer runs use:
 
 ```bash
-sbatch slurm/agentic_benchmark_planning_cpu.slurm
+sbatch slurm/agentic_benchmark_planning_ai.slurm
 sbatch --export=ALL,SYSTEM=automv slurm/published_baseline_planning_smoke.slurm
 sbatch --export=ALL,SYSTEM=movieagent slurm/published_baseline_planning_smoke.slurm
 sbatch --export=ALL,SYSTEM=automv slurm/published_baseline_storymem_generate.slurm

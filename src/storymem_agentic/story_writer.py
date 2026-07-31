@@ -57,6 +57,7 @@ def storymem_script_from_plan(plan: ProductionPlan) -> dict:
         "scenes": [
             {
                 "scene_num": scene.scene_num,
+                "lyric_line": scene.subtitle_text,
                 "video_prompts": [scene.video_prompt],
                 "cut": [scene.cut],
                 # The parent pipeline uses this only when burning subtitles after generation.

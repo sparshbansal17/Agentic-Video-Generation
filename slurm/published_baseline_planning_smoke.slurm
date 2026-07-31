@@ -2,12 +2,13 @@
 #SBATCH --job-name=baseline-plan-smoke
 #SBATCH --output=logs/baseline_plan_smoke_%j.out
 #SBATCH --error=logs/baseline_plan_smoke_%j.err
-#SBATCH --partition=smallgpu
+#SBATCH --partition=ai
+#SBATCH --qos=preemptible
 #SBATCH --account=aarc
 #SBATCH --gres=gpu:1
-# The smallgpu partition allocates one of its two L40 GPUs per 64 CPU slots.
-#SBATCH --cpus-per-task=64
-#SBATCH --time=01:00:00
+# The ai partition requires 14 CPU slots per requested H100.
+#SBATCH --cpus-per-task=14
+#SBATCH --time=02:00:00
 
 set -euo pipefail
 umask 002

@@ -27,8 +27,10 @@ class MockAgentBackend:
 @dataclass(slots=True)
 class CommandAgentBackend:
     command_template: str
+    call_count: int = 0
 
     def generate_json(self, prompt: str, schema: dict[str, Any], context: dict[str, Any]) -> dict[str, Any]:
+        self.call_count += 1
         payload = json.dumps({"prompt": prompt, "schema": schema, "context": context})
         command = shlex.split(self.command_template)
         try:

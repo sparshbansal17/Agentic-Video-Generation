@@ -181,8 +181,8 @@ def build_user_prompt(payload: dict[str, Any]) -> str:
             revision_block += f"Previous planner decision JSON:\n{json.dumps(previous_decision, indent=2)}\n"
         return (
             "Revise a structured video plan by returning a SMALL JSON PATCH, not the complete plan.\n"
-            "The patch shape is: {\"scene_revisions\": [{\"scene_num\": 1, \"field_to_change\": "
-            "\"camera\", \"replacement_value\": \"Camera gently reveals the subject\"}], \"plan_updates\": {}}. "
+            "Each scene_revisions item must contain exactly scene_num, field_to_change, and replacement_value; "
+            "plan_updates must be an object. "
             "Include every field needed to resolve each issue, "
             "but do not include unchanged scenes or explanatory prose. Preserve lyrics and character identity.\n"
             "field_to_change MUST be one of: scene_goal, lyric_interpretation, setting, subjects, action, camera, "
@@ -559,10 +559,22 @@ def main() -> int:
         if isinstance(issue, dict) and issue.get("code") == "nonvisual_relationship_change"
         and isinstance(issue.get("scene_num"), int)
     }
+    action_revision_scenes = {
+        int(issue["scene_num"])
+        for issue in validation_issues
+        if isinstance(issue, dict)
+        and issue.get("field") == "action"
+        and isinstance(issue.get("scene_num"), int)
+    }
 
     def validate_generated_decision(decision: dict[str, Any]) -> None:
         validate_decision(decision)
-        if not (directional_scenes or future_scenes or nonvisual_relationship_scenes):
+        if not (
+            directional_scenes
+            or future_scenes
+            or nonvisual_relationship_scenes
+            or action_revision_scenes
+        ):
             return
         action_revisions = {
             int(item["scene_num"]): str(item.get("replacement_value", ""))
@@ -597,6 +609,19 @@ def main() -> int:
                 text.lower(),
             ) or len(text.strip()) < 12:
                 raise ValueError(f"scene {scene_num} relationship_change must name a visible action")
+        for scene_num in action_revision_scenes:
+            replacement = action_revisions.get(scene_num, "")
+            if (
+                len(replacement.split()) < 6
+                or re.search(
+                    r"\b(?:reveal(?:s|ed|ing)?|show(?:s|ed|ing)?|depict(?:s|ed|ing)?)\s+"
+                    r"(?:the\s+|a\s+)?(?:subject|scene|lyric|beat|payoff)\b",
+                    replacement.lower(),
+                )
+            ):
+                raise ValueError(
+                    f"scene {scene_num} action must name a concrete visible subject and event"
+                )
 
     raw = generate_with_transformers(
         args.model,

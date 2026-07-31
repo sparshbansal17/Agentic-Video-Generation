@@ -57,3 +57,34 @@ def test_compare_submissions_joins_delivery_and_planning(tmp_path: Path) -> None
     assert report["rows"][0]["audio_checksum_matches_manifest"] is True
     assert report["rows"][0]["scene_count_accuracy"] == 1.0
     assert report["rows"][0]["planning_seconds"] == 12.0
+
+
+def test_compare_submissions_includes_planning_only_systems(tmp_path: Path) -> None:
+    manifest = {
+        "benchmark_id": "test",
+        "systems": ["storymem_agentic", "automv", "movieagent"],
+        "cases": [{"case_id": "case", "locked_audio_sha256": "audio-hash"}],
+    }
+    for system, seconds in (("automv", 12.0), ("movieagent", 34.0)):
+        plan_dir = tmp_path / "plans" / system / "case" / "seed_000"
+        plan_dir.mkdir(parents=True)
+        (plan_dir / "planning_metrics.json").write_text(
+            json.dumps(
+                {
+                    "scene_count_accuracy": 1.0,
+                    "planning_seconds": seconds,
+                }
+            )
+        )
+
+    report = compare_submissions(
+        manifest=manifest,
+        submissions_root=tmp_path / "submissions",
+        plans_root=tmp_path / "plans",
+    )
+
+    assert [row["system"] for row in report["rows"]] == ["automv", "movieagent"]
+    assert all(row["delivery_pass"] is None for row in report["rows"])
+    assert all(row["generation_seconds"] is None for row in report["rows"])
+    assert report["rows"][1]["planning_seconds"] == 34.0
+    assert "Planning-only" in report["rows"][0]["notes"]

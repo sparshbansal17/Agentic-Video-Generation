@@ -10,7 +10,16 @@ from storymem_agentic.alignment import analyze_whisperx_alignment
 from storymem_agentic.agents import MockAgentBackend
 from storymem_agentic.feedback import apply_revision_plan, build_revision_plan
 from storymem_agentic.media_evaluator import evaluate_iteration
-from storymem_agentic.planner import PlanCriticAgent, PromptPlannerAgent, _constrain_revision_to_issues, build_production_plan, build_visual_bible, validate_plan_semantics
+from storymem_agentic.planner import (
+    PlanCriticAgent,
+    PromptPlannerAgent,
+    _apply_revision_transaction,
+    _constrain_revision_to_issues,
+    build_production_plan,
+    build_visual_bible,
+    production_plan_from_planner_decision,
+    validate_plan_semantics,
+)
 from storymem_agentic.orchestrator import default_storymem_dir, run_workflow
 from storymem_agentic.review_agents import _normalize_model_report
 from storymem_agentic.schemas import EvaluationReport, NurseryRhymeInput, ReviewerReport, RevisionPlan
@@ -120,8 +129,12 @@ class AgenticArchitectureTests(unittest.TestCase):
         self.assertEqual(set(script), {"story_overview", "scenes"})
         self.assertEqual(len(script["scenes"]), 3)
         for index, scene in enumerate(script["scenes"], start=1):
-            self.assertEqual(set(scene), {"scene_num", "video_prompts", "cut", "subtitle_text"})
+            self.assertEqual(
+                set(scene),
+                {"scene_num", "lyric_line", "video_prompts", "cut", "subtitle_text"},
+            )
             self.assertEqual(scene["scene_num"], index)
+            self.assertEqual(scene["lyric_line"], scene["subtitle_text"])
             self.assertEqual(len(scene["video_prompts"]), 1)
             self.assertEqual(len(scene["cut"]), 1)
             self.assertLess(len(scene["video_prompts"][0]), 900)
@@ -1021,6 +1034,169 @@ class AgenticArchitectureTests(unittest.TestCase):
         codes = {issue["code"] for issue in planner.last_validation_report["issues"]}
         self.assertIn("nonvisual_relationship_change", codes)
 
+    def test_vague_relationship_repair_removes_internal_state_clause(self):
+        decision = self._structured_decision(["Star appears", "Viewer wonders"], character_label="star")
+        decision["scenes"][1]["action"] = "the star twinkles softly, inviting the viewer to wonder"
+        decision["scenes"][1]["relationship_to_previous"]["change"] = ["curiosity"]
+
+        plan = PromptPlannerAgent(
+            MockAgentBackend(responses={"planner": decision}), max_plan_revisions=0
+        ).plan(NurseryRhymeInput(topic_or_name="visible star progression"))
+
+        issue = next(
+            issue
+            for issue in validate_plan_semantics(
+                plan, require_reviewer_approval=False
+            )["issues"]
+            if issue["code"] == "vague_relationship_change"
+        )
+
+        self.assertEqual(
+            issue["replacement_value"],
+            ["visible action changes to: the star twinkles softly"],
+        )
+        self.assertNotIn("wonder", issue["replacement_value"][0].lower())
+
+    def test_explicit_continuity_entities_are_preserved_verbatim_in_prompts(self):
+        decision = self._structured_decision(
+            ["Star appears", "Star rises"], character_label="Friendly Star"
+        )
+        topic = (
+            "Preserve identity across distinct shots. Required continuity entities: "
+            "friendly five-point star, sleeping village."
+        )
+
+        plan = PromptPlannerAgent(
+            MockAgentBackend(responses={"planner": decision}), max_plan_revisions=0
+        ).plan(NurseryRhymeInput(topic_or_name=topic))
+
+        self.assertTrue(
+            all("friendly five-point star" in scene.video_prompt for scene in plan.scenes)
+        )
+        self.assertIn("sleeping village", plan.scenes[0].video_prompt)
+
+    def test_distinct_shot_contract_requires_camera_vocabulary(self):
+        decision = self._structured_decision(
+            ["One", "Two", "Three", "Four"], character_label="star"
+        )
+        for index, scene in enumerate(decision["scenes"], start=1):
+            scene["camera"] = f"Camera uses a medium pan variation {index}"
+
+        plan = PromptPlannerAgent(
+            MockAgentBackend(responses={"planner": decision}), max_plan_revisions=0
+        ).plan(
+            NurseryRhymeInput(
+                topic_or_name="Align each lyric line to a distinct shot"
+            )
+        )
+
+        issue = next(
+            issue
+            for issue in validate_plan_semantics(
+                plan, require_reviewer_approval=False
+            )["issues"]
+            if issue["code"] == "insufficient_camera_vocabulary"
+        )
+        self.assertEqual(issue["scene_num"], 4)
+        self.assertIn("Wide shot", issue["replacement_value"])
+        self.assertIn("static", issue["replacement_value"])
+        self.assertIn("tilts", issue["replacement_value"])
+
+    def test_generic_reveal_action_cannot_pass_semantic_review(self):
+        decision = self._structured_decision(["Set up", "Pay off"], character_label="star")
+        decision["scenes"][1]["action"] = "The star gently reveals the subject"
+
+        plan = PromptPlannerAgent(
+            MockAgentBackend(responses={"planner": decision}), max_plan_revisions=0
+        ).plan(NurseryRhymeInput(topic_or_name="concrete star payoff"))
+
+        issue = next(
+            issue
+            for issue in validate_plan_semantics(
+                plan, require_reviewer_approval=False
+            )["issues"]
+            if issue["code"] == "meta_action_placeholder"
+        )
+        self.assertEqual(issue["scene_num"], 2)
+        self.assertEqual(issue["field"], "action")
+
+    def test_relationship_camera_detail_must_match_revised_camera(self):
+        decision = self._structured_decision(["Set up", "Pay off"], character_label="star")
+        decision["scenes"][1]["camera"] = "Wide static shot of the star over the village"
+        decision["scenes"][1]["relationship_to_previous"]["change"] = [
+            "camera composition changes to: Close-up shot of the star"
+        ]
+
+        plan = PromptPlannerAgent(
+            MockAgentBackend(responses={"planner": decision}), max_plan_revisions=0
+        ).plan(NurseryRhymeInput(topic_or_name="honest camera relationship"))
+
+        issue = next(
+            issue
+            for issue in validate_plan_semantics(
+                plan, require_reviewer_approval=False
+            )["issues"]
+            if issue["code"] == "false_relationship_change_claim"
+        )
+        self.assertIn(
+            "camera_detail",
+            issue["evidence"]["unchanged_or_contradicted_fields"],
+        )
+        self.assertTrue(issue["replacement_value"])
+
+    def test_revision_transaction_closes_dependent_relationship_metadata(self):
+        decision = self._structured_decision(
+            ["One", "Two", "Three", "Four"], character_label="star"
+        )
+        for index, scene in enumerate(decision["scenes"], start=1):
+            scene["camera"] = f"Camera uses a medium pan variation {index}"
+        decision["scenes"][3]["relationship_to_previous"]["change"] = [
+            "camera composition changes to: medium pan variation 4"
+        ]
+        rhyme = NurseryRhymeInput(
+            topic_or_name="Align each lyric line to a distinct shot"
+        )
+        plan = production_plan_from_planner_decision(rhyme, decision)
+        baseline = validate_plan_semantics(plan, require_reviewer_approval=False)
+        camera_issue = next(
+            issue
+            for issue in baseline["issues"]
+            if issue["code"] == "insufficient_camera_vocabulary"
+        )
+
+        revised, transaction = _apply_revision_transaction(
+            decision,
+            {
+                "scene_revisions": [
+                    {
+                        "scene_num": 4,
+                        "field_to_change": "camera",
+                        "replacement_value": camera_issue["replacement_value"],
+                    }
+                ],
+                "plan_updates": {},
+            },
+            baseline["issues"],
+            rhyme,
+            target_fps=24,
+            baseline_report=baseline,
+        )
+
+        self.assertTrue(transaction["accepted"])
+        self.assertTrue(transaction["semantic_closure"])
+        self.assertNotEqual(
+            revised["scenes"][3]["relationship_to_previous"]["change"],
+            decision["scenes"][3]["relationship_to_previous"]["change"],
+        )
+        revised_plan = production_plan_from_planner_decision(rhyme, revised)
+        codes = {
+            issue["code"]
+            for issue in validate_plan_semantics(
+                revised_plan, require_reviewer_approval=False
+            )["issues"]
+        }
+        self.assertNotIn("false_relationship_change_claim", codes)
+
     def test_relationship_revision_normalizes_scalar_to_list(self):
         previous = self._structured_decision(["Wind begins", "Cradle responds"])
         issue = {
@@ -1255,6 +1431,143 @@ class AgenticArchitectureTests(unittest.TestCase):
         codes = {issue["code"] for issue in planner.last_validation_report["issues"]}
         self.assertIn("repeated_narrative_beat", codes)
         self.assertIn("repeated_scene_staging", codes)
+
+    def test_repeated_diamond_lyric_beat_gets_concrete_visual_payoff(self):
+        decision = self._structured_decision(
+            ["Up above the world so high", "Like a diamond in the sky"],
+            character_label="star",
+        )
+        decision["scenes"][0]["action"] = (
+            "The star soars high above the village, twinkling brightly"
+        )
+        decision["scenes"][1]["action"] = decision["scenes"][0]["action"]
+
+        plan = PromptPlannerAgent(
+            MockAgentBackend(responses={"planner": decision}), max_plan_revisions=0
+        ).plan(NurseryRhymeInput(topic_or_name="concrete diamond payoff"))
+
+        issue = next(
+            issue
+            for issue in validate_plan_semantics(
+                plan, require_reviewer_approval=False
+            )["issues"]
+            if issue["code"] == "repeated_narrative_beat"
+        )
+        self.assertIn("diamond-shaped sparkle", issue["replacement_value"])
+        self.assertIn("sleeping village", issue["replacement_value"])
+
+    def test_wonder_lyric_cannot_reverse_observer_and_star_roles(self):
+        decision = self._structured_decision(
+            ["Twinkle, twinkle, little star", "How I wonder what you are"],
+            character_label="Star",
+        )
+        decision["selected_characters"].append(
+            {
+                "label": "Villager",
+                "role": "sleeping village resident",
+                "description": "same peaceful villager with a soft smile",
+                "selection_rationale": "observer who responds to the star",
+            }
+        )
+        decision["scenes"][1]["action"] = (
+            "The star gazes down at the village, curious"
+        )
+
+        plan = PromptPlannerAgent(
+            MockAgentBackend(responses={"planner": decision}), max_plan_revisions=0
+        ).plan(NurseryRhymeInput(topic_or_name="preserve lyric speaker roles"))
+
+        issue = next(
+            issue
+            for issue in validate_plan_semantics(
+                plan, require_reviewer_approval=False
+            )["issues"]
+            if issue["code"] == "lyric_subject_reversal"
+        )
+        self.assertIn("Villager", issue["replacement_value"])
+        self.assertIn("points up at the same star", issue["replacement_value"])
+        self.assertIn("selected_characters", issue["replacement_fields"])
+        self.assertEqual(
+            {item["label"] for item in issue["replacement_fields"]["selected_characters"]},
+            {"Star", "Villager"},
+        )
+
+    def test_coupled_subject_repair_takes_precedence_over_stale_vague_repair(self):
+        decision = self._structured_decision(
+            ["Twinkle, twinkle, little star", "How I wonder what you are"],
+            character_label="Star",
+        )
+        decision["selected_characters"].append(
+            {
+                "label": "Villager",
+                "role": "sleeping village resident",
+                "description": "same peaceful villager with a soft smile",
+                "selection_rationale": "observer who responds to the star",
+            }
+        )
+        decision["scenes"][1]["action"] = (
+            "The star gazes down at the village, curious"
+        )
+        decision["scenes"][1]["relationship_to_previous"]["change"] = ["curiosity"]
+        plan = production_plan_from_planner_decision(
+            NurseryRhymeInput(topic_or_name="preserve lyric speaker roles"),
+            decision,
+        )
+        deterministic = validate_plan_semantics(
+            plan, require_reviewer_approval=False
+        )
+
+        review = PlanCriticAgent(
+            MockAgentBackend(
+                responses={
+                    "plan_critic": {
+                        "passed": True,
+                        "issues": [],
+                        "scores": {},
+                        "revision_notes": [],
+                    }
+                }
+            )
+        ).review(plan, deterministic)
+        relationship_revisions = [
+            revision
+            for revision in review["targeted_revision"]["scene_revisions"]
+            if revision["scene_num"] == 2
+            and revision["field_to_change"] == "relationship_change"
+        ]
+
+        self.assertEqual(len(relationship_revisions), 1)
+        self.assertIn(
+            "The Villager opens their eyes",
+            relationship_revisions[0]["replacement_value"][0],
+        )
+
+    def test_declared_action_detail_must_match_revised_action(self):
+        decision = self._structured_decision(["Set up", "Pay off"], character_label="star")
+        decision["scenes"][1]["action"] = "The star forms one diamond-shaped sparkle"
+        decision["scenes"][1]["relationship_to_previous"]["change"] = [
+            "visible action changes to: The star gazes down at the village, curious"
+        ]
+
+        plan = PromptPlannerAgent(
+            MockAgentBackend(responses={"planner": decision}), max_plan_revisions=0
+        ).plan(NurseryRhymeInput(topic_or_name="honest action metadata"))
+
+        issue = next(
+            issue
+            for issue in validate_plan_semantics(
+                plan, require_reviewer_approval=False
+            )["issues"]
+            if issue["code"] == "false_relationship_change_claim"
+        )
+        self.assertIn(
+            "action_detail",
+            issue["evidence"]["unchanged_or_contradicted_fields"],
+        )
+        self.assertIn(
+            "The star forms one diamond-shaped sparkle",
+            issue["replacement_value"][0],
+        )
 
     def test_overcrowded_five_second_shot_requires_focus(self):
         decision = self._structured_decision(["Friends gather for a game"])

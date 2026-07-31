@@ -666,6 +666,11 @@ def run_workflow(
         "context": planner.last_context,
         "response": planner.last_response,
         "attempt_count": len(planner.plan_attempts),
+        "agent_call_count": sum(
+            int(getattr(backend, "call_count", 0))
+            for backend in (planner.backend, planner.critic.backend)
+            if backend is not None
+        ),
     }
     write_json(
         root / "planner_agent_output.json",

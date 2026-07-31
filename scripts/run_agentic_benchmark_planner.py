@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import shutil
 import sys
@@ -30,12 +31,30 @@ def main() -> int:
     parser.add_argument("--run-dir", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--model", default="Qwen/Qwen2-VL-7B-Instruct")
-    parser.add_argument("--max-plan-revisions", type=int, default=2)
+    parser.add_argument("--max-plan-revisions", type=int, default=6)
     args = parser.parse_args()
 
     case = load_case(args.manifest, args.case_id)
     args.run_dir.mkdir(parents=True, exist_ok=True)
     args.output_dir.mkdir(parents=True, exist_ok=True)
+    for pattern in (
+        "planner_attempt_*.json",
+        "planner_draft_*.json",
+        "planner_revision_*.json",
+        "plan_review_*.json",
+    ):
+        for stale in args.run_dir.glob(pattern):
+            stale.unlink()
+    for filename in (
+        "storymem_story.json",
+        "native_plan.json",
+        "planning_trace.json",
+        "planning_metrics.json",
+        "provenance.json",
+    ):
+        stale = args.output_dir / filename
+        if stale.exists():
+            stale.unlink()
     # Keep the venv launcher path. Resolving its symlink selects the system Python,
     # which does not contain the benchmark's torch/transformers installation.
     python = Path(sys.executable)
@@ -76,7 +95,13 @@ def main() -> int:
     elapsed = time.monotonic() - started
     planner_report_path = args.run_dir / "planner_agent_output.json"
     planner_report = json.loads(planner_report_path.read_text(encoding="utf-8"))
-    if planner_report.get("error"):
+    if (
+        planner_report.get("error")
+        and (
+            not planner_report.get("validation_passed")
+            or not planner_report.get("critic_passed")
+        )
+    ):
         raise RuntimeError(f"agentic planner failed: {planner_report['error']}")
     if not planner_report.get("validation_passed") or not planner_report.get("critic_passed"):
         raise RuntimeError("agentic planner did not pass deterministic and semantic review")
@@ -100,12 +125,24 @@ def main() -> int:
         json.dumps(trace, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
     attempts = max(1, len(list(args.run_dir.glob("planner_attempt_*.json"))))
+    source_files = (
+        repo / "src/storymem_agentic/planner.py",
+        repo / "scripts/local_lullaby_planner.py",
+        repo / "scripts/local_plan_critic.py",
+    )
+    source_hasher = hashlib.sha256()
+    for source in source_files:
+        source_hasher.update(str(source.relative_to(repo)).encode("utf-8"))
+        source_hasher.update(b"\0")
+        source_hasher.update(source.read_bytes())
+        source_hasher.update(b"\0")
     provenance = {
         "system": "storymem_agentic",
         "case_id": args.case_id,
         "model": args.model,
-        "source_contract": "planner + StoryArcReview + ShotPlanReview",
-        "agent_calls": 1 + 2 * attempts,
+        "source_contract": "planner.py + local_lullaby_planner.py + local_plan_critic.py",
+        "source_sha256": source_hasher.hexdigest(),
+        "agent_calls": int(planner_report.get("agent_call_count", 1 + 2 * attempts)),
         "planning_seconds": elapsed,
         "run_dir": str(args.run_dir.resolve()),
     }

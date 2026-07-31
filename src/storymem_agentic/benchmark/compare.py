@@ -23,6 +23,7 @@ def compare_submissions(
 ) -> dict[str, Any]:
     rows: list[dict[str, Any]] = []
     errors: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
     for submission_path in sorted(submissions_root.glob("**/submission.json")):
         try:
             submission = _json(submission_path)
@@ -99,6 +100,62 @@ def compare_submissions(
                     "clip_adjacent_scene_similarity_mean"
                 ),
                 "notes": submission.get("notes", ""),
+            }
+        )
+        seen.add((submission["system"], submission["case_id"]))
+    for planning_path in sorted(
+        plans_root.glob(f"*/*/seed_{seed:03d}/planning_metrics.json")
+    ):
+        system = planning_path.parents[2].name
+        case_id = planning_path.parents[1].name
+        if (system, case_id) in seen:
+            continue
+        try:
+            planning = _json(planning_path)
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            errors.append({"path": str(planning_path), "error": str(exc)})
+            continue
+        rows.append(
+            {
+                "system": system,
+                "case_id": case_id,
+                "delivery_pass": None,
+                "duration_error_seconds": None,
+                "audio_checksum_matches_manifest": None,
+                "scene_count_accuracy": planning.get("scene_count_accuracy"),
+                "exact_lyric_and_subtitle_rate": planning.get(
+                    "exact_lyric_and_subtitle_rate"
+                ),
+                "required_entity_exact_phrase_coverage": planning.get(
+                    "required_entity_exact_phrase_coverage"
+                ),
+                "required_entity_key_token_coverage": planning.get(
+                    "required_entity_key_token_coverage"
+                ),
+                "primary_entity_scene_coverage": planning.get(
+                    "primary_entity_scene_coverage"
+                ),
+                "camera_vocabulary_per_expected_scene": planning.get(
+                    "camera_vocabulary_per_expected_scene"
+                ),
+                "safety_language_scene_rate": planning.get(
+                    "safety_language_scene_rate"
+                ),
+                "unsafe_term_occurrences": planning.get("unsafe_term_occurrences"),
+                "schema_placeholder_occurrences": planning.get(
+                    "schema_placeholder_occurrences"
+                ),
+                "agent_calls": planning.get("agent_calls"),
+                "planning_seconds": planning.get("planning_seconds"),
+                "generation_seconds": None,
+                "clip_assigned_scene_similarity_mean": None,
+                "clip_global_prompt_similarity_mean": None,
+                "clip_lyric_retrieval_order_accuracy": None,
+                "clip_adjacent_scene_similarity_mean": None,
+                "notes": (
+                    "Planning-only result; no validated media submission is available "
+                    "for this system and case."
+                ),
             }
         )
     return {
