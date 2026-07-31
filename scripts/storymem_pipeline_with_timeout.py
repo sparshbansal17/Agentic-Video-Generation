@@ -24,7 +24,7 @@ def install_distributed_timeout(seconds: int) -> None:
 
 def main() -> None:
     pipeline = Path(os.environ["STORYMEM_PIPELINE_PATH"]).resolve()
-    timeout = int(os.environ.get("STORYMEM_DIST_TIMEOUT_SECONDS", "7200"))
+    timeout = int(os.environ.get("STORYMEM_DIST_TIMEOUT_SECONDS", "21600"))
     if timeout < 600:
         raise ValueError("STORYMEM_DIST_TIMEOUT_SECONDS must be at least 600")
     if not pipeline.is_file():
