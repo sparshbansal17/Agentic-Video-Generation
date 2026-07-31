@@ -1,0 +1,19 @@
+{
+  "suite_id": "agentic-av-review-repair-v1",
+  "description": "Controlled faults for measuring reviewer detection and localized repair, independently of generator quality.",
+  "scoring": {
+    "detection": ["micro_precision", "micro_recall", "micro_f1"],
+    "localization": ["scene_precision", "scene_recall", "scene_f1"],
+    "repair": ["post_repair_pass_rate", "quality_delta", "collateral_edit_rate", "wall_time", "regenerated_seconds"]
+  },
+  "faults": [
+    {"fault_id": "missing_audio_stream", "layer": "assembly", "expected_reviewer": "ArtifactReviewAgent", "affected_scenes": []},
+    {"fault_id": "truncated_final_lyric", "layer": "audio", "expected_reviewer": "WhisperXLyricTimingAgent", "affected_scenes": [4]},
+    {"fault_id": "lyric_boundary_drift", "layer": "audio", "expected_reviewer": "WhisperXLyricTimingAgent", "affected_scenes": [2]},
+    {"fault_id": "wrong_scene_for_lyric", "layer": "semantics", "expected_reviewer": "StoryAlignmentReviewAgent", "affected_scenes": [3]},
+    {"fault_id": "character_identity_swap", "layer": "continuity", "expected_reviewer": "ContinuityReviewAgent", "affected_scenes": [2, 3]},
+    {"fault_id": "unsafe_falling_cradle", "layer": "safety", "expected_reviewer": "VisualSafetyReviewAgent", "affected_scenes": [4]},
+    {"fault_id": "missing_scene_clip", "layer": "assembly", "expected_reviewer": "ArtifactReviewAgent", "affected_scenes": [3]},
+    {"fault_id": "reversed_story_order", "layer": "narrative", "expected_reviewer": "StoryAlignmentReviewAgent", "affected_scenes": [2, 3]}
+  ]
+}

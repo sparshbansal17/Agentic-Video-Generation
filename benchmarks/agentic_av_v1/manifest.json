@@ -1,0 +1,144 @@
+{
+  "benchmark_id": "agentic-av-lullaby-v1",
+  "version": "1.0.0",
+  "description": "A paired benchmark for agentic audio-video generation, review, and localized repair.",
+  "systems": [
+    "storymem_agentic",
+    "automv",
+    "mavin",
+    "movieagent"
+  ],
+  "seeds": [0, 1, 2],
+  "tracks": {
+    "conditioned_song_to_video": "Every system receives the same locked song and semantic specification.",
+    "end_to_end_prompt_to_song_video": "The system must create audio, visuals, assembly, review, and repair from one request."
+  },
+  "cases": [
+    {
+      "case_id": "conditioned_twinkle",
+      "track": "conditioned_song_to_video",
+      "prompt": "Create a calm illustrated nighttime video about one friendly star above a sleeping village; preserve the star's identity and align each lyric line to a distinct shot.",
+      "lyrics": ["Twinkle, twinkle, little star", "How I wonder what you are", "Up above the world so high", "Like a diamond in the sky"],
+      "target_duration_seconds": 24,
+      "expected_scenes": 4,
+      "required_entities": ["friendly five-point star", "sleeping village"],
+      "stressors": ["repeated_words", "character_consistency", "night_palette"],
+      "locked_audio_id": "audio-pack-v1/twinkle"
+    },
+    {
+      "case_id": "conditioned_hickory_clock",
+      "track": "conditioned_song_to_video",
+      "prompt": "Create a playful clock-tower sequence with the same small brown mouse in every shot and visible cause-and-effect movement up and down the clock.",
+      "lyrics": ["Hickory dickory dock", "The mouse ran up the clock", "The clock struck one", "The mouse ran down"],
+      "target_duration_seconds": 24,
+      "expected_scenes": 4,
+      "required_entities": ["small brown mouse", "wooden clock tower"],
+      "stressors": ["identity_consistency", "action_order", "beat_sync"],
+      "locked_audio_id": "audio-pack-v1/hickory"
+    },
+    {
+      "case_id": "conditioned_row_boat",
+      "track": "conditioned_song_to_video",
+      "prompt": "Follow two friends in one red boat down a gentle stream, maintaining direction, wardrobe, and boat appearance across shots.",
+      "lyrics": ["Row, row, row your boat", "Gently down the stream", "Merrily, merrily, merrily, merrily", "Life is but a dream"],
+      "target_duration_seconds": 24,
+      "expected_scenes": 4,
+      "required_entities": ["two friends", "red rowboat"],
+      "stressors": ["repeated_words", "spatial_continuity", "water_motion"],
+      "locked_audio_id": "audio-pack-v1/row_boat"
+    },
+    {
+      "case_id": "conditioned_rain_away",
+      "track": "conditioned_song_to_video",
+      "prompt": "Show a child waiting safely indoors while rain clears, then playing outside; keep clothing and room geography consistent.",
+      "lyrics": ["Rain, rain, go away", "Come again another day", "Little Robin wants to play", "Rain, rain, go away"],
+      "target_duration_seconds": 24,
+      "expected_scenes": 4,
+      "required_entities": ["Robin in yellow pajamas", "round bedroom window"],
+      "stressors": ["weather_transition", "repeated_line", "temporal_order"],
+      "locked_audio_id": "audio-pack-v1/rain_away"
+    },
+    {
+      "case_id": "conditioned_mary_lamb",
+      "track": "conditioned_song_to_video",
+      "prompt": "Tell a coherent school-day story with the same child and white lamb; use gentle behavior and no frightening imagery.",
+      "lyrics": ["Mary had a little lamb", "Its fleece was white as snow", "And everywhere that Mary went", "The lamb was sure to go"],
+      "target_duration_seconds": 24,
+      "expected_scenes": 4,
+      "required_entities": ["Mary in blue overalls", "small white lamb"],
+      "stressors": ["two_character_identity", "narrative_causality", "child_safety"],
+      "locked_audio_id": "audio-pack-v1/mary_lamb"
+    },
+    {
+      "case_id": "conditioned_rockabye",
+      "track": "conditioned_song_to_video",
+      "prompt": "Create a reassuring fantasy cradle scene with slow movement; reinterpret the ending safely so the cradle settles into glowing clouds.",
+      "lyrics": ["Rock-a-bye baby, on the tree top", "When the wind blows, the cradle will rock", "When the bough bends, the cradle will glide", "Soft into clouds on a moonlit ride"],
+      "target_duration_seconds": 28,
+      "expected_scenes": 4,
+      "required_entities": ["woven cradle", "glowing cloud"],
+      "stressors": ["safety_reframing", "slow_motion", "lyric_visual_grounding"],
+      "locked_audio_id": "audio-pack-v1/rockabye_safe"
+    },
+    {
+      "case_id": "prompt_moon_garden",
+      "track": "end_to_end_prompt_to_song_video",
+      "prompt": "In one request, write and perform a four-line lullaby about a child and silver rabbit tending a moon garden, then make a coherent 24-second illustrated music video with subtitles.",
+      "lyrics": ["Silver rabbit, soft and bright", "Plants the moonbeams every night", "Little gardener, close your eyes", "Dreaming under violet skies"],
+      "target_duration_seconds": 24,
+      "expected_scenes": 4,
+      "required_entities": ["silver rabbit", "child gardener", "violet sky"],
+      "stressors": ["audio_synthesis", "identity_consistency", "subtitle_timing"]
+    },
+    {
+      "case_id": "prompt_sleepy_robot",
+      "track": "end_to_end_prompt_to_song_video",
+      "prompt": "Produce a gentle four-line synth lullaby and video in which one round blue robot powers down its noisy workshop one machine at a time.",
+      "lyrics": ["Little robot, lights grow low", "Quiet gears now turning slow", "Switch the silver starlight on", "Rest until the gentle dawn"],
+      "target_duration_seconds": 24,
+      "expected_scenes": 4,
+      "required_entities": ["round blue robot", "workshop", "silver night-light"],
+      "stressors": ["causal_sequence", "audio_style", "object_persistence"]
+    },
+    {
+      "case_id": "prompt_ocean_lantern",
+      "track": "end_to_end_prompt_to_song_video",
+      "prompt": "Generate a quiet ocean lullaby and video about the same tiny turtle carrying a lantern home through three distinct underwater locations.",
+      "lyrics": ["Tiny turtle, lantern glow", "Past the coral, drifting slow", "Through the blue where bubbles roam", "Follow starlight safely home"],
+      "target_duration_seconds": 24,
+      "expected_scenes": 4,
+      "required_entities": ["tiny green turtle", "amber lantern", "coral arch"],
+      "stressors": ["cross_scene_identity", "underwater_physics", "route_continuity"]
+    },
+    {
+      "case_id": "prompt_forest_fireflies",
+      "track": "end_to_end_prompt_to_song_video",
+      "prompt": "Create a four-line acoustic lullaby and video where fireflies guide a lost fawn from a fern clearing back to its family without any peril.",
+      "lyrics": ["Fireflies in lantern rows", "Light the path where clover grows", "Little fawn, the forest knows", "Home is where the warm light glows"],
+      "target_duration_seconds": 24,
+      "expected_scenes": 4,
+      "required_entities": ["spotted fawn", "firefly trail", "deer family"],
+      "stressors": ["narrative_resolution", "low_light", "safety"]
+    },
+    {
+      "case_id": "prompt_cloud_train",
+      "track": "end_to_end_prompt_to_song_video",
+      "prompt": "Make a dreamy waltz lullaby and video about one cloud train visiting the moon, Saturn, and a comet in that exact order before returning home.",
+      "lyrics": ["Cloud train climbing through the night", "Wave hello to moonbeam light", "Round the rings and past a star", "Home again from dreams afar"],
+      "target_duration_seconds": 28,
+      "expected_scenes": 4,
+      "required_entities": ["white cloud train", "moon", "Saturn", "comet"],
+      "stressors": ["ordered_events", "vehicle_consistency", "musical_meter"]
+    },
+    {
+      "case_id": "prompt_counting_stars",
+      "track": "end_to_end_prompt_to_song_video",
+      "prompt": "Generate a slow counting lullaby with synchronized subtitles and shots that visibly introduce exactly one, two, three, then four friendly stars.",
+      "lyrics": ["One small star begins to shine", "Two drift softly into line", "Three hum low above the door", "Close your eyes and dream of four"],
+      "target_duration_seconds": 24,
+      "expected_scenes": 4,
+      "required_entities": ["four distinguishable friendly stars", "bedroom window"],
+      "stressors": ["numeracy_grounding", "subtitle_sync", "object_count"]
+    }
+  ]
+}

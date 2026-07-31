@@ -61,6 +61,7 @@ dev = [
 
 [project.scripts]
 storymem-agentic = "storymem_agentic.cli:main"
+agentic-av-benchmark = "storymem_agentic.benchmark.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -74,4 +75,4 @@ target-version = "py311"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["src"]
+pythonpath = ["src", "."]

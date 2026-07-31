@@ -1,0 +1,11 @@
+{
+  "system": "automv",
+  "case_id": "conditioned_twinkle",
+  "final_video": "seed_000/final.mp4",
+  "evaluation_report": null,
+  "execution_trace": "seed_000/trace.json",
+  "wall_time_seconds": null,
+  "estimated_cost_usd": null,
+  "regenerated_seconds": null,
+  "notes": "Template only; this is not a completed result."
+}

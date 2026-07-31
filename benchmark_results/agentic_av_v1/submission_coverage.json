@@ -1,0 +1,94 @@
+{
+  "expected_cases_per_system": 12,
+  "systems": {
+    "storymem_agentic": {
+      "submitted": 0,
+      "coverage": 0.0,
+      "missing_case_ids": [
+        "conditioned_hickory_clock",
+        "conditioned_mary_lamb",
+        "conditioned_rain_away",
+        "conditioned_rockabye",
+        "conditioned_row_boat",
+        "conditioned_twinkle",
+        "prompt_cloud_train",
+        "prompt_counting_stars",
+        "prompt_forest_fireflies",
+        "prompt_moon_garden",
+        "prompt_ocean_lantern",
+        "prompt_sleepy_robot"
+      ],
+      "adapter": {
+        "native_input": "prompt_and_optional_lyrics",
+        "adapter": "Run the repository pipeline once; do not hand-edit intermediate plans."
+      }
+    },
+    "automv": {
+      "submitted": 0,
+      "coverage": 0.0,
+      "missing_case_ids": [
+        "conditioned_hickory_clock",
+        "conditioned_mary_lamb",
+        "conditioned_rain_away",
+        "conditioned_rockabye",
+        "conditioned_row_boat",
+        "conditioned_twinkle",
+        "prompt_cloud_train",
+        "prompt_counting_stars",
+        "prompt_forest_fireflies",
+        "prompt_moon_garden",
+        "prompt_ocean_lantern",
+        "prompt_sleepy_robot"
+      ],
+      "adapter": {
+        "native_input": "finished_song",
+        "adapter": "Use the locked benchmark song as AutoMV's input; disable manual shot edits."
+      }
+    },
+    "mavin": {
+      "submitted": 0,
+      "coverage": 0.0,
+      "missing_case_ids": [
+        "conditioned_hickory_clock",
+        "conditioned_mary_lamb",
+        "conditioned_rain_away",
+        "conditioned_rockabye",
+        "conditioned_row_boat",
+        "conditioned_twinkle",
+        "prompt_cloud_train",
+        "prompt_counting_stars",
+        "prompt_forest_fireflies",
+        "prompt_moon_garden",
+        "prompt_ocean_lantern",
+        "prompt_sleepy_robot"
+      ],
+      "adapter": {
+        "native_input": "hierarchical_multishot_caption",
+        "adapter": "Convert the locked case specification once, using the published scripting pipeline."
+      }
+    },
+    "movieagent": {
+      "submitted": 0,
+      "coverage": 0.0,
+      "missing_case_ids": [
+        "conditioned_hickory_clock",
+        "conditioned_mary_lamb",
+        "conditioned_rain_away",
+        "conditioned_rockabye",
+        "conditioned_row_boat",
+        "conditioned_twinkle",
+        "prompt_cloud_train",
+        "prompt_counting_stars",
+        "prompt_forest_fireflies",
+        "prompt_moon_garden",
+        "prompt_ocean_lantern",
+        "prompt_sleepy_robot"
+      ],
+      "adapter": {
+        "native_input": "script_and_character_bank",
+        "adapter": "Use the locked case script and derive its character bank without manual revisions."
+      }
+    }
+  },
+  "validation_errors": []
+}

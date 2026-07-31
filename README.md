@@ -1,3 +1,10 @@
+> **This repository extends, but did not invent, StoryMem.** The project-specific contribution is
+> the prompt-to-lullaby production layer around the upstream video generator: semantic planning,
+> full-song/audio timing, subtitles and assembly, multi-reviewer evaluation, and localized repair.
+> Upstream StoryMem documentation is preserved below. See the
+> [Agentic AV benchmark](benchmarks/agentic_av_v1/README.md) for the reproducible comparison with
+> AutoMV, MAVIN, and MovieAgent and [audio system notes](docs/audio_system.md) for the song pipeline.
+
 <p align="center">
   <h2 align="center"><i>StoryMem</i>: Multi-shot Long Video Storytelling with Memory</h1>
 

@@ -1,0 +1,31 @@
+{
+  "warning": "Reference values copied from the cited papers are not head-to-head results. Dataset, input, duration, resolution, and evaluation protocol differ.",
+  "primary_comparisons": {
+    "automv": {
+      "paper": "AutoMV: Automated Music Video Generation with Multi-Agent Systems",
+      "source": "https://arxiv.org/html/2512.12196v1",
+      "dataset": "30-song AutoMV evaluation set",
+      "input": "finished song",
+      "scale": "expert rating, 1-5",
+      "full_system": {"aggregate": 2.42, "character_consistency": 3.07, "physical_authenticity": 2.95, "lip_sync": 2.67, "visual_harmony": 3.07, "shot_continuity": 2.0, "audio_visual_correlation": 2.1, "musical_theme": 3.08, "storytelling": 2.18, "emotional_expression": 2.6, "visual_quality": 3.28, "creativity": 1.23, "ai_novelty": 1.83},
+      "verifier_ablation_aggregate": 2.08
+    },
+    "mavin": {
+      "paper": "MAVIN: Multi-Shot Audio-Visual Generation with Customized Narrative Control",
+      "source": "https://arxiv.org/html/2606.29473v1",
+      "dataset": "MAVINSet 1K evaluation split",
+      "input": "hierarchical caption, 3-15 seconds, 1-6 shots",
+      "full_system": {"fvd_lower_is_better": 231.6, "fad_lower_is_better": 6.8, "text_video_similarity": 0.2471, "text_audio_similarity": 0.2392, "wer_lower_is_better": 0.048, "syncnet": 6.032, "av_imagebind": 0.263, "temporal_audio_matching": 0.8104, "subject_consistency": 0.9695, "background_consistency": 0.9657, "cross_shot_content_consistency": 0.6319, "boundary_image_similarity": 0.8013, "shot_transition_accuracy": 0.9897},
+      "movieagent_plus_hunyuan_foley": {"fvd_lower_is_better": 395.3, "fad_lower_is_better": 15.9, "text_video_similarity": 0.1271, "text_audio_similarity": 0.1995, "syncnet": 1.913, "av_imagebind": 0.179, "subject_consistency": 0.9656, "background_consistency": 0.9298, "cross_shot_content_consistency": 0.4872, "boundary_image_similarity": 0.6744}
+    },
+    "movieagent": {
+      "paper": "MovieAgent: Automated Movie Generation via Multi-Agent CoT Planning",
+      "source": "https://arxiv.org/html/2503.07314v1",
+      "input": "script and character bank",
+      "human_scale": "0-5",
+      "reported_multi_agent_ablation_average": 3.72,
+      "reported_no_multi_agent_average": 3.55,
+      "evaluated_dimensions": ["visual_appeal", "script_faithfulness", "narrative_coherence", "character_consistency", "physical_law"]
+    }
+  }
+}

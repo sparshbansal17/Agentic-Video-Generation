@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Agentic AV benchmark submission",
+  "type": "object",
+  "required": ["system", "case_id", "final_video"],
+  "properties": {
+    "system": {"enum": ["storymem_agentic", "automv", "mavin", "movieagent"]},
+    "case_id": {"type": "string"},
+    "final_video": {"type": "string"},
+    "evaluation_report": {"type": ["string", "null"]},
+    "execution_trace": {"type": ["string", "null"]},
+    "wall_time_seconds": {"type": ["number", "null"], "minimum": 0},
+    "estimated_cost_usd": {"type": ["number", "null"], "minimum": 0},
+    "regenerated_seconds": {"type": ["number", "null"], "minimum": 0},
+    "notes": {"type": "string"}
+  },
+  "additionalProperties": true
+}
