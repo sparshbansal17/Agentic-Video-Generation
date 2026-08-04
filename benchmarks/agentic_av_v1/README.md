@@ -58,6 +58,25 @@ The head-to-head table should include:
 | Agentic review | injected-fault detection F1, scene localization F1, repair success, collateral-edit rate | Directly tests the novel review-and-repair design |
 | Efficiency | wall time, accelerator hours, API cost, regenerated seconds | Tests whether targeted repair actually saves work |
 
+For the single-output diagnostic, `score-media-advanced` samples eight interior frames from every
+scene and reports CLIP similarity against locked observable scene descriptions, hardest-negative
+contrastive margins, retrieval MRR, dense-frame lower-tail alignment, DINOv2 within-shot
+consistency and between-shot separation, and motion-compensated optical-flow residual. Unlike the
+contract rates, these are continuous or ranking metrics. Scene change and motion are reported
+separately because neither maximum motion nor maximum adjacent-frame similarity is universally
+desirable. `score-media-vlm` adds a deterministic, system-blind Qwen2-VL contact-sheet rubric;
+its result is kept separate from embedding metrics and is not a substitute for blinded humans.
+Because independent scalar VLM judgments can collapse to a shared default score,
+`score-media-vlm-panel` is the primary VLM endpoint: it compares three anonymous contact sheets,
+rotates every system through positions A/B/C, derives per-dimension rankings from the assigned
+scores while permitting evidence-supported ties, and averages scores and fractional rank points
+across positions. The independent scalar rubric remains diagnostic only.
+Primary win counts exclude zero-spread endpoints: if every system receives exactly the same value,
+the report records the endpoint as saturated rather than awarding equal “wins.”
+`score-plan-vlm` evaluates only the normalized lyric/render-prompt pairs, hiding system-specific
+metadata, and grades semantic-role fidelity, observable actions, progression, continuity, shot
+design, safety adaptation, and renderability. This isolates planner behavior from renderer noise.
+
 FVD/FAD require enough samples and must be reported only for the full locked case/seed set. For a
 small diagnostic run, report per-output embedding similarities and human confidence intervals, not
 sample-starved FVD/FAD as if they were stable.
@@ -111,6 +130,15 @@ python -m storymem_agentic.benchmark score-media \
   --video path/to/raw-pre-subtitle-video.mp4 \
   --output path/to/submission/media_metrics.json \
   --clip-cache /home/bansa125/.cache/clip
+
+python -m storymem_agentic.benchmark score-media-advanced \
+  --manifest benchmarks/agentic_av_v1/manifest.json \
+  --case-id conditioned_twinkle \
+  --video path/to/raw-pre-subtitle-video.mp4 \
+  --output path/to/submission/advanced_media_metrics.json \
+  --device cuda \
+  --clip-cache /home/bansa125/.cache/clip \
+  --dino-cache .hf-cache/transformers
 ```
 
 Cluster smoke and common-renderer runs use:
@@ -121,6 +149,25 @@ sbatch --export=ALL,SYSTEM=automv slurm/published_baseline_planning_smoke.slurm
 sbatch --export=ALL,SYSTEM=movieagent slurm/published_baseline_planning_smoke.slurm
 sbatch --export=ALL,SYSTEM=automv slurm/published_baseline_storymem_generate.slurm
 sbatch --export=ALL,SYSTEM=movieagent slurm/published_baseline_storymem_generate.slurm
+sbatch slurm/advanced_benchmark_metrics_ai.slurm
+sbatch slurm/advanced_plan_metrics_ai.slurm
+sbatch slurm/advanced_vlm_panel_ai.slurm
+```
+
+Set `SEED=1` or `SEED=2` when submitting the common-renderer script to create `seed_001` and
+`seed_002` outputs while keeping the frozen `seed_000` normalized plan. This isolates renderer
+stochasticity instead of silently regenerating or changing the plan between seeds.
+
+After all three seeds are scored, aggregate means, sample standard deviations, seed-bootstrap
+intervals, per-seed winners, and zero-spread exclusions with:
+
+```bash
+python -m storymem_agentic.benchmark aggregate-advanced \
+  --manifest benchmarks/agentic_av_v1/manifest.json \
+  --submissions-root results_baselines/submissions \
+  --case-id conditioned_twinkle \
+  --seeds 0 1 2 \
+  --output results_baselines/reports/conditioned_twinkle_three_seed_advanced.json
 ```
 
 The planning adapter records the SHA-256 digest of the external repository source file whose agent

@@ -1,7 +1,40 @@
 {
   "benchmark_id": "agentic-av-lullaby-v1",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "A paired benchmark for agentic audio-video generation, review, and localized repair.",
+  "advanced_evaluation": {
+    "protocol": "dense-clip-dinov2-flow-qwen2vl-v1",
+    "frozen_at": "2026-08-03T18:55:00-04:00",
+    "primary_metrics": {
+      "semantic_contrastive_margin_mean": "higher",
+      "semantic_retrieval_mrr": "higher",
+      "dense_frame_margin_p10": "higher",
+      "dinov2_within_scene_consistency": "higher",
+      "flow_warp_error_mean": "lower",
+      "panel_weighted_overall_score": "higher",
+      "panel_semantic_grounding": "higher",
+      "panel_narrative_progression": "higher",
+      "panel_subject_identity_consistency": "higher",
+      "panel_temporal_coherence": "higher",
+      "panel_visual_quality": "higher"
+    },
+    "plan_primary_metrics": {
+      "plan_vlm_weighted_overall_score": "higher",
+      "plan_vlm_semantic_role_fidelity": "higher",
+      "plan_vlm_observable_action_grounding": "higher",
+      "plan_vlm_narrative_progression": "higher",
+      "plan_vlm_cross_scene_continuity": "higher",
+      "plan_vlm_shot_design": "higher",
+      "plan_vlm_safety_adaptation": "higher",
+      "plan_vlm_renderability": "higher"
+    },
+    "diagnostic_only": [
+      "raw_adjacent_scene_similarity",
+      "scene_change_separation",
+      "optical_flow_magnitude",
+      "independent_vlm_scalar_rubric"
+    ]
+  },
   "systems": [
     "storymem_agentic",
     "automv",
@@ -19,6 +52,12 @@
       "track": "conditioned_song_to_video",
       "prompt": "Create a calm illustrated nighttime video about one friendly star above a sleeping village; preserve the star's identity and align each lyric line to a distinct shot.",
       "lyrics": ["Twinkle, twinkle, little star", "How I wonder what you are", "Up above the world so high", "Like a diamond in the sky"],
+      "evaluation_scene_descriptions": [
+        "One friendly five-point star repeatedly twinkles above a sleeping village at night.",
+        "A villager wakes, points upward, and looks curiously at the same friendly five-point star.",
+        "The same friendly five-point star is visibly high above the sleeping village, with the world far below.",
+        "The same friendly five-point star produces one diamond-shaped sparkle in the sky above the sleeping village."
+      ],
       "target_duration_seconds": 24,
       "expected_scenes": 4,
       "required_entities": ["friendly five-point star", "sleeping village"],

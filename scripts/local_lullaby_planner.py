@@ -2,11 +2,88 @@
 from __future__ import annotations
 
 import argparse
+from copy import deepcopy
 import json
 import os
 import re
 import sys
 from typing import Any, Callable
+
+
+EDITABLE_SCENE_FIELDS = {
+    "scene_goal",
+    "lyric_interpretation",
+    "setting",
+    "subjects",
+    "action",
+    "camera",
+    "style",
+    "safety_adaptation",
+    "selected_characters",
+    "expected_mood",
+    "boundary_behavior",
+    "cut",
+    "narrative_function",
+    "relationship_kind",
+    "relationship_preserve",
+    "relationship_change",
+    "relationship_rationale",
+}
+
+
+def apply_binding_replacements(
+    decision: dict[str, Any], validation_issues: list[Any]
+) -> dict[str, Any]:
+    """Merge validator-provided corrections into a model-generated revision patch.
+
+    Validation issues are ordered by specificity.  The first supplied value for a
+    scene/field therefore wins when a later, more generic diagnostic also mentions
+    that field.  Model-authored edits remain useful for fields without a binding,
+    but cannot silently omit or override an exact acceptance criterion.
+    """
+    if "scene_revisions" not in decision:
+        return decision
+
+    bindings: dict[tuple[int, str], dict[str, Any]] = {}
+    for issue in validation_issues:
+        if not isinstance(issue, dict):
+            continue
+        scene_num = issue.get("scene_num")
+        if not isinstance(scene_num, int):
+            continue
+
+        replacement_fields = issue.get("replacement_fields")
+        candidates: list[tuple[str, Any]] = []
+        if isinstance(replacement_fields, dict):
+            candidates.extend(replacement_fields.items())
+        field = issue.get("field")
+        if isinstance(field, str) and "replacement_value" in issue:
+            candidates.append((field, issue["replacement_value"]))
+
+        for field_name, replacement_value in candidates:
+            key = (scene_num, field_name)
+            if field_name not in EDITABLE_SCENE_FIELDS or key in bindings:
+                continue
+            bindings[key] = {
+                "scene_num": scene_num,
+                "field_to_change": field_name,
+                "replacement_value": deepcopy(replacement_value),
+            }
+
+    model_revisions = decision.get("scene_revisions")
+    if not isinstance(model_revisions, list):
+        return decision
+    retained: list[dict[str, Any]] = []
+    for revision in model_revisions:
+        if not isinstance(revision, dict):
+            retained.append(revision)
+            continue
+        key = (revision.get("scene_num"), revision.get("field_to_change"))
+        if key not in bindings:
+            retained.append(revision)
+
+    decision["scene_revisions"] = [*bindings.values(), *retained]
+    return decision
 
 
 def extract_json(text: str) -> dict[str, Any]:
@@ -468,44 +545,6 @@ def main() -> int:
     issue_codes = {
         str(issue.get("code", "")) for issue in validation_issues if isinstance(issue, dict)
     }
-    trusted_exact_codes = {
-        "directional_wish_not_staged", "future_return_wish_not_staged",
-        "named_prop_event_not_staged", "nonvisual_relationship_change", "wish_outcome_reversed",
-        "vague_relationship_change", "missing_observable_scene_change",
-    }
-    exact_revisions: dict[tuple[int, str], dict[str, Any]] = {}
-    for issue in validation_issues:
-        if not isinstance(issue, dict) or issue.get("code") not in trusted_exact_codes:
-            continue
-        scene_num = issue.get("scene_num")
-        field = issue.get("field")
-        if not isinstance(scene_num, int) or not isinstance(field, str) or "replacement_value" not in issue:
-            continue
-        exact_revisions[(scene_num, field)] = {
-            "scene_num": scene_num,
-            "field_to_change": field,
-            "replacement_value": issue["replacement_value"],
-        }
-    if exact_revisions:
-        action_scene_nums = {
-            int(issue["scene_num"])
-            for issue in validation_issues
-            if isinstance(issue, dict) and issue.get("field") == "action"
-            and isinstance(issue.get("scene_num"), int)
-        }
-        exact_revisions = {
-            key: revision
-            for key, revision in exact_revisions.items()
-            if not (key[1] == "relationship_change" and key[0] in action_scene_nums)
-        }
-        if exact_revisions:
-            decision = {"scene_revisions": list(exact_revisions.values()), "plan_updates": {}}
-            rendered = json.dumps(decision)
-            if args.debug_output:
-                with open(args.debug_output, "w", encoding="utf-8") as handle:
-                    handle.write(rendered)
-            print(rendered)
-            return 0
     forbidden_words = None
     if "unsafe_visual_action" in issue_codes:
         forbidden_words = [
@@ -568,6 +607,7 @@ def main() -> int:
     }
 
     def validate_generated_decision(decision: dict[str, Any]) -> None:
+        apply_binding_replacements(decision, validation_issues)
         validate_decision(decision)
         if not (
             directional_scenes

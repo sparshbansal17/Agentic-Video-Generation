@@ -101,7 +101,7 @@ class AgenticArchitectureTests(unittest.TestCase):
         self.assertLess(len(plan.scenes[0].video_prompt), 900)
         self.assertIn("toddler-safe lullaby animation", plan.scenes[0].video_prompt)
         self.assertIn("StoryMem keyframe memory", plan.scenes[0].video_prompt)
-        self.assertIn("this prompt controls the new scene layout", plan.scenes[0].video_prompt)
+        self.assertIn("preserves identity/style across this shot", plan.scenes[0].video_prompt)
         self.assertIn("no picture-in-picture", plan.scenes[0].video_prompt)
         self.assertNotIn("pajama_child", plan.scenes[0].video_prompt)
         self.assertNotIn("smiling_star", plan.scenes[0].video_prompt)
@@ -1074,6 +1074,15 @@ class AgenticArchitectureTests(unittest.TestCase):
             all("friendly five-point star" in scene.video_prompt for scene in plan.scenes)
         )
         self.assertIn("sleeping village", plan.scenes[0].video_prompt)
+        self.assertTrue(
+            all(
+                "face, color, shape, and proportions" in scene.video_prompt
+                for scene in plan.scenes
+            )
+        )
+        self.assertTrue(
+            all("no morphing, replacement, or duplicate" in scene.video_prompt for scene in plan.scenes)
+        )
 
     def test_distinct_shot_contract_requires_camera_vocabulary(self):
         decision = self._structured_decision(
@@ -1454,6 +1463,8 @@ class AgenticArchitectureTests(unittest.TestCase):
             if issue["code"] == "repeated_narrative_beat"
         )
         self.assertIn("diamond-shaped sparkle", issue["replacement_value"])
+        self.assertIn("unchanged five-point star", issue["replacement_value"])
+        self.assertIn("appears beside it", issue["replacement_value"])
         self.assertIn("sleeping village", issue["replacement_value"])
 
     def test_wonder_lyric_cannot_reverse_observer_and_star_roles(self):
@@ -1485,6 +1496,8 @@ class AgenticArchitectureTests(unittest.TestCase):
             if issue["code"] == "lyric_subject_reversal"
         )
         self.assertIn("Villager", issue["replacement_value"])
+        self.assertIn("remains fully visible in the foreground", issue["replacement_value"])
+        self.assertIn("raises one arm", issue["replacement_value"])
         self.assertIn("points up at the same star", issue["replacement_value"])
         self.assertIn("selected_characters", issue["replacement_fields"])
         self.assertEqual(
@@ -1538,7 +1551,7 @@ class AgenticArchitectureTests(unittest.TestCase):
 
         self.assertEqual(len(relationship_revisions), 1)
         self.assertIn(
-            "The Villager opens their eyes",
+            "The Villager remains fully visible in the foreground",
             relationship_revisions[0]["replacement_value"][0],
         )
 

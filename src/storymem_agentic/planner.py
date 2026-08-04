@@ -548,18 +548,29 @@ def _storyboard_prompt(
     required_here = continuity_entities[:1]
     if index == 1:
         required_here = continuity_entities
+    identity_entity = continuity_entities[0] if continuity_entities else ""
+    continuity_only = [
+        entity for entity in required_here if entity.lower() != identity_entity.lower()
+    ]
     continuity = (
-        " Required continuity entities: " + "; ".join(required_here) + "."
-        if required_here
+        " Required continuity entities: " + "; ".join(continuity_only) + "."
+        if continuity_only
+        else ""
+    )
+    identity_lock = (
+        f" Identity lock: keep the {identity_entity}'s face, color, shape, and "
+        "proportions; no morphing, replacement, or duplicate."
+        if continuity_entities
         else ""
     )
     return (
         f"Scene {index} of {clip_count}, [{start:.1f}-{end:.1f}s], toddler-safe lullaby animation: "
         f"Opening frame: {scene_text} {camera_text}. "
         f"{style}{staging}. "
-        "StoryMem keyframe memory preserves identity/style; this prompt controls the new scene layout. "
-        f"No dialogue or background music, {text_guard}, no picture-in-picture, no inset frame, no scary elements."
-        f"{continuity}"
+        "StoryMem keyframe memory preserves identity/style across this shot. "
+        f"No dialogue or background music; {text_guard}, no picture-in-picture, "
+        "no inset frame, no scary elements."
+        f"{continuity}{identity_lock}"
     )
 
 
@@ -879,8 +890,9 @@ def validate_plan_semantics(plan: ProductionPlan, *, require_reviewer_approval: 
         ).lower()
         if "diamond" in lyric and "star" in visible_context:
             return (
-                "The star's glow gathers into one soft diamond-shaped sparkle "
-                "while the sleeping village remains visible below"
+                "The unchanged five-point star remains visible while one separate small "
+                "four-point diamond-shaped sparkle appears beside it and the sleeping "
+                "village remains visible below"
             )
         return None
     if not plan.arc_summary.strip():
@@ -1157,8 +1169,9 @@ def validate_plan_semantics(plan: ProductionPlan, *, require_reviewer_approval: 
                 )
             observer_label = observer.label if observer else "sleepy village resident"
             replacement_action = (
-                f"The {observer_label} opens their eyes, points up at the same star, "
-                "and watches its changing glow with a curious smile"
+                f"The {observer_label} remains fully visible in the foreground, opens their "
+                "eyes, raises one arm, points up at the same star, and watches its changing "
+                "glow with a curious smile"
             )
             replacement_fields: dict[str, Any] = {
                 "scene_goal": "Show the village observer visibly wondering about the same star",
